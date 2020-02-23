@@ -1,0 +1,3 @@
+(executable
+  (name llcc)
+  (libraries batteries))
