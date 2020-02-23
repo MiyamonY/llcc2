@@ -22,5 +22,8 @@ dune build
 
 try 0 0
 try 42 42
+try 5 "3+2"
+try 10 "7-2+5"
+try 21 "5+20-4"
 
 echo OK
