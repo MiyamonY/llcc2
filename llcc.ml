@@ -34,33 +34,45 @@ let input = ref ""
 
 let atoi c = Char.code c - Char.code '0'
 
-let rec parse_int i n = function
-  | [] -> (i, n, [])
-  | c::rest ->
-    match c with
-    |  '0' .. '9' ->
-      parse_int (succ i) (n*10 + atoi c) rest
-    | _ -> (i, n, c::rest)
-
 let error_message title n msg =
   let sep = String.repeat " " n in
   Printf.sprintf "%s:\n%s\n%s^ %s" title !input sep msg
 
+let rec int n =
+  State.(let+ i = get in
+         if String.length !input = i then
+           return @@ Ok (Num (i, n))
+         else
+           let c = String.get !input i in
+           match c with
+           | '0' .. '9' ->
+             let+ () = put @@ i+1 in
+             int @@ 10 * n + atoi c
+           | _ -> return @@ Ok (Num (i, n)))
+
 let tokenize input =
-  let rec aux i = function
-    | [] -> Ok []
-    | c::rest ->
-      match c with
-      | '0' .. '9' ->
-        let (i, n, r) = parse_int (succ i) (atoi c) rest in
-        Result.map (List.cons (Num (i, n))) @@ aux i r
-      | ' ' | '\t' -> aux (succ i) rest
-      | '+' | '-' ->
-        Result.(let* op = op_of_char c in
-                map (List.cons (Reserved (i, op))) @@ aux (succ i) rest)
-      | _  -> Error (error_message "tokenize" i "unexpected token")
-  in
-  aux 0 @@ String.to_list input
+  let rec aux = lazy
+    State.(let+ i = get in
+           if i = String.length input then
+             return @@ Result.return []
+           else
+             let c = String.get input i in
+             let+ () = put @@ i + 1 in
+             match c with
+             | '0' .. '9' ->
+               let+ n = int @@ atoi c in
+               let+ ts = Lazy.force aux in
+               return Result.(let* m = n in let* us = ts in return (m::us))
+             | ' ' | '\t'  ->  Lazy.force aux
+             | '+' | '-' ->
+               let+ ts = Lazy.force aux in
+               let tokens = Result.(let* op = op_of_char c in
+                                    let* us = ts in
+                                    return @@ (Reserved(i, op))::us) in
+               return tokens
+             | _ -> return @@ Result.Error (error_message "tokenize" i "unexpected token")
+          ) in
+  State.evalState (Lazy.force aux) 0
 
 type node =
   | Number of pos * int
