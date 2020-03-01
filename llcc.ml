@@ -29,6 +29,8 @@ let op_of_char = function
 type token =
   | Reserved of pos * op
   | Num of pos * int
+  | LParen of pos
+  | RParen of pos
 
 let input = ref ""
 
@@ -70,6 +72,16 @@ let tokenize input =
                                     let* us = ts in
                                     return @@ (Reserved(i, op))::us) in
                return tokens
+             | '(' ->
+               let+ ts = Lazy.force aux in
+               let tokens = Result.(let* us = ts in
+                                    return @@ (LParen i ::us)) in
+               return tokens
+             | ')' ->
+               let+ ts = Lazy.force aux in
+               let tokens = Result.(let* us = ts in
+                                    return @@ (RParen i ::us)) in
+               return tokens
              | _ -> return @@ Result.Error (error_message "tokenize" i "unexpected token")
           ) in
   State.evalState (Lazy.force aux) 0
@@ -85,41 +97,58 @@ let rec print_node = function
     let sr = print_node r in
     Printf.sprintf "BinaryOp(%s,%s,%s)\n" (print_op op) sl sr
 
-let primary =
+(* primary = num | "(" expr ")" *)
+let rec primary = lazy
   State.(let+ tokens = get in
          match tokens with
-         | [] -> return (Error "token exhausted")
+         | [] -> return @@ Error "a token exhausted"
          | t :: rest->
-           let+ () = put rest in
            match t with
-           | Num (i, n) -> return (Ok (Number (i, n)))
-           | _ -> return (Error "unexpected token"))
+           | Num (i, n) ->
+             let+ () = put rest in
+             return @@ Ok (Number (i, n))
+           | LParen _ ->
+             let+ () = put rest in
+             let+ e = Lazy.force expr in
+             let+ tokens = get in
+             begin
+               match tokens with
+               | [] -> return @@ Error "token exhausted"
+               | t :: rest ->
+                 let+ () = put rest in
+                 match t with
+                 | RParen _ -> return e
+                 | _ -> return @@ Error "unexpected token"
+             end
+           | _ ->
+             return @@ Error "unexpected token")
 
-let mul = primary
+(* mul = primary *)
+and mul = lazy (Lazy.force primary)
 
 (* expr  = mul ("+" mul | "-" mul)* *)
-let expr =
+and expr =
   let rec star left =
     State.(let+ tokens = get in
            match tokens with
            | [] -> return left
            | t::rest ->
-             let+ () = put rest in
              match t with
              | Reserved (i, op) ->
-               let+ right = mul in
+               let+ () = put rest in
+               let+ right = Lazy.force mul in
                let n = Result.(let* lnode = left in
                                let* rnode = right in
                                return @@ BinaryOp (i, op, lnode, rnode)) in
                star n
              | _ -> return left) in
-  State.(let+ left = mul in
-         star left)
+  lazy State.(let+ left =  Lazy.force mul in
+              star left)
 
 (* program = expr *)
-let program = expr
+and program = lazy (Lazy.force expr)
 
-let parse = program
+let parse = Lazy.force program
 
 let rec generate  = function
   | Number (_, n) -> Ok ([Printf.sprintf "\tpush %d" n])
@@ -144,5 +173,6 @@ let () =
                [".intel_syntax noprefix";
                 ".global main"; "main:"] @ commands @ ["\tpop rax"; "\tret"])
      end)
-  |> Result.fold ~ok:(fun s -> Printf.printf "%s\n" s;0) ~error:(fun s -> Printf.eprintf "%s\n" s ;1)
+  |> Result.fold ~ok:(fun s -> Printf.printf "%s\n" s;0)
+    ~error:(fun s -> Printf.eprintf "%s\n" s ;1)
   |> exit
