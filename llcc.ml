@@ -22,9 +22,9 @@ let print_op = function
   | Minus -> "-"
 
 let op_of_char = function
-  | '+'-> Ok Plus
-  | '-'-> Ok Minus
-  | _ -> Error "invalid token"
+  | '+'-> Some Plus
+  | '-'-> Some Minus
+  | _ -> None
 
 type token =
   | Reserved of pos * op
@@ -32,13 +32,25 @@ type token =
   | LParen of pos
   | RParen of pos
 
+let token_pos = function
+  | Reserved (p, _) -> p
+  | Num (p, _) -> p
+  | LParen p -> p
+  | RParen p  -> p
+
 let input = ref ""
 
 let atoi c = Char.code c - Char.code '0'
 
-let error_message title n msg =
-  let sep = String.repeat " " n in
-  Printf.sprintf "%s:\n%s\n%s^ %s" title !input sep msg
+let error_message  = function
+  | `ArgumentError msg ->
+    Printf.sprintf "Argument error: %s" msg
+  | `TokenizerError (i, msg) ->
+    let sep = String.repeat " " i in
+    Printf.sprintf "Tokenizer error:\n%s\n%s^ %s" !input sep msg
+  | `ParserError (i, msg) ->
+    let sep = String.repeat " " i in
+    Printf.sprintf "Parser error:\n%s\n%s^ %s" !input sep msg
 
 let rec int n =
   State.(let+ i = get in
@@ -68,9 +80,12 @@ let tokenize input =
              | ' ' | '\t'  ->  Lazy.force aux
              | '+' | '-' ->
                let+ ts = Lazy.force aux in
-               let tokens = Result.(let* op = op_of_char c in
-                                    let* us = ts in
-                                    return @@ (Reserved(i, op))::us) in
+               let tokens = Result.(
+                   match op_of_char c with
+                   | None -> Error (`TokenizerError (i, "unexpected token"))
+                   | Some op ->
+                     let* us = ts in
+                     return @@ (Reserved(i, op))::us) in
                return tokens
              | '(' ->
                let+ ts = Lazy.force aux in
@@ -82,8 +97,7 @@ let tokenize input =
                let tokens = Result.(let* us = ts in
                                     return @@ (RParen i ::us)) in
                return tokens
-             | _ -> return @@ Result.Error (error_message "tokenize" i "unexpected token")
-          ) in
+             | _ -> return @@ Error (`TokenizerError (i, "unexpected token"))) in
   State.evalState (Lazy.force aux) 0
 
 type node =
@@ -106,7 +120,7 @@ let peek =
 let next =
   State.(let+ tokens = get in
          match tokens with
-         | [] -> return @@ Error "token exhausted"
+         | [] -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
          | _::rest ->
            let+ () = put rest in return @@ Ok ())
 
@@ -114,7 +128,7 @@ let next =
 let rec primary = lazy
   State.(let+ t = peek in
          match t with
-         | None -> return @@ Error "token exhausted"
+         | None -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
          | Some token ->
            match token with
            | Num (i, n) ->
@@ -125,13 +139,13 @@ let rec primary = lazy
              let+ token = peek in
              begin
                match token with
-               | None -> return @@ Error "token exhausted"
+               | None -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
                | Some t ->
                  match t with
                  | RParen _ -> let+ _ = next in return e
-                 | _ -> return @@ Error "unexpected token"
+                 | _   -> return @@ Error (`ParserError (token_pos t, "unexpected token"))
              end
-           | _ -> return @@ Error "unexpected token")
+           | _ -> return @@ Error (`ParserError (token_pos token, "unexpected token")))
 
 (* mul = primary *)
 and mul = lazy (Lazy.force primary)
@@ -171,7 +185,7 @@ let rec generate  = function
 
 let () =
   (if Array.length Sys.argv != 2 then
-     Error "引数の個数が正しくありません"
+     Error (`ArgumentError "The number of arugument is 1")
    else
      begin
        input := Sys.argv.(1);
@@ -184,5 +198,5 @@ let () =
                 ".global main"; "main:"] @ commands @ ["\tpop rax"; "\tret"])
      end)
   |> Result.fold ~ok:(fun s -> Printf.printf "%s\n" s;0)
-    ~error:(fun s -> Printf.eprintf "%s\n" s ;1)
+    ~error:(fun s -> Printf.eprintf "%s\n" @@ error_message s ;1)
   |> exit

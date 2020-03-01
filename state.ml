@@ -1,4 +1,4 @@
-type ('a, 'b) t = 'b -> ('a*'b)
+type (+'a, 'b) t = 'b -> ('a*'b)
 
 let return x = fun s -> (x, s)
 

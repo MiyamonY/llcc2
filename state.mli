@@ -1,4 +1,4 @@
-type ('a, 'b) t
+type (+'a, 'b) t
 
 val return : 'a -> ('a, 'b) t
 
