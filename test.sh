@@ -46,10 +46,12 @@ try 10 "7-2+5"
 try 21 "5+20-4"
 try 3 "(3)"
 try 0 "1-(4-3)"
+try 2 "(1+3)-2"
 
 try_error "234+24-a"
 try_error "-23+3"
 try_error "23++23"
 try_error "1-(4-3"
+try_error ")+1+2 "
 
 echo OK
