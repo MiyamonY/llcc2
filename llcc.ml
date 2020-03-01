@@ -21,6 +21,7 @@ type op =
   | Eq
   | Neq
   | Lt
+  | Le
 
 let string_of_op = function
   | Plus -> "+"
@@ -30,6 +31,18 @@ let string_of_op = function
   | Eq -> "=="
   | Neq -> "!="
   | Lt -> "<"
+  | Le -> "<="
+
+let op_of_string = function
+  | "+"-> Some Plus
+  | "-" -> Some Minus
+  | "*" -> Some Mul
+  | "/" -> Some Div
+  | "<" -> Some Lt
+  | "<=" -> Some Le
+  | "==" -> Some Eq
+  | "!=" -> Some Neq
+  | _ -> None
 
 let op_of_char = function
   | '+'-> Some Plus
@@ -99,25 +112,19 @@ let tokenize input =
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
              | '+' | '-' | '*' | '/' | '=' | '!' | '<' ->
-               begin match op_of_char c with
+               let+ i = get in
+               let c1 = String.get input i in
+               begin match op_of_string @@ String.of_list [c; c1] with
                  | None ->
-                   let+ i = get in
-                   let c1 = String.get input i in
-                   begin match c, c1 with
-                     | '=', '=' ->
-                       let+ () = put (i+1) in
+                   begin match op_of_char c with
+                     | None -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")
+                     | Some op ->
                        let+ ts = Lazy.force aux in
                        return Result.(let* us = ts in
-                                      return @@ Reserved(i, Eq)::us)
-                     | '!',  '=' ->
-                       let+ () = put (i+1) in
-                       let+ ts = Lazy.force aux in
-                       return Result.(let* us = ts in
-                                      return @@ Reserved(i, Neq):: us)
-                     | _, _ ->
-                       return @@ Result.error @@ `TokenizerError (i, "unexpected token")
+                                      return @@ Reserved(i, op)::us)
                    end
                  | Some op ->
+                   let+ () = put (i+1) in
                    let+ ts = Lazy.force aux in
                    return Result.(let* us = ts in
                                   return @@ Reserved(i, op)::us)
@@ -251,7 +258,7 @@ and add =
   lazy State.(let+ left = Lazy.force mul in
               star left)
 
-(* relational = add ("<" add) * *)
+(* relational = add ("<" add | "<=" add) * *)
 and relational =
   let rec star left =
     State.(let+ token = peek in
@@ -261,7 +268,7 @@ and relational =
              match t with
              | Reserved (i, op) ->
                begin match op with
-                 | Lt ->
+                 | Lt | Le ->
                    let+ _ = next in
                    let+ right = Lazy.force add in
                    let n = Result.(let* lnode = left in
@@ -341,6 +348,9 @@ let generate parsed =
                   Machine "movzb rax, al"]
         | Lt -> [Machine "cmp rax, rdi";
                  Machine "setl al";
+                 Machine "movzb rax, al"]
+        | Le -> [Machine "cmp rax, rdi";
+                 Machine "setle al";
                  Machine "movzb rax, al"] in
       lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax";] @ op @ [Machine "push rax"] in
   string_of_commands @@ [Assembler ".intel_syntax noprefix";
