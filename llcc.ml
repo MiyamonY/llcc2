@@ -17,16 +17,19 @@ type op =
   | Plus
   | Minus
   | Mul
+  | Div
 
 let print_op = function
   | Plus -> "+"
   | Minus -> "-"
   | Mul -> "*"
+  | Div -> "/"
 
 let op_of_char = function
   | '+'-> Some Plus
   | '-'-> Some Minus
   | '*' -> Some Mul
+  | '/' -> Some Div
   | _ -> None
 
 type token =
@@ -81,7 +84,7 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
-             | '+' | '-' | '*' ->
+             | '+' | '-' | '*' | '/' ->
                let+ ts = Lazy.force aux in
                let tokens = Result.(
                    match op_of_char c with
@@ -150,7 +153,7 @@ let rec primary = lazy
              end
            | _ -> return @@ Error (`ParserError (token_pos token, "unexpected token")))
 
-(* mul = primary ("*" mul)* *)
+(* mul = primary ("*" primary | "/" primary)* *)
 and mul =
   let rec star left =
     State.(let+ token = peek in
@@ -160,9 +163,9 @@ and mul =
              match t with
              | Reserved (i, op) ->
                begin match op with
-                 | Mul ->
+                 | Mul | Div ->
                    let+ _ = next in
-                   let+ right = Lazy.force mul in
+                   let+ right = Lazy.force primary in
                    let n = Result.(let* lnode = left in
                                    let* rnode = right in
                                    return @@ BinaryOp (i, op, lnode, rnode)) in
@@ -209,7 +212,8 @@ let rec generate  = function
             let op = match op with
               | Plus -> "\tadd rax, rdi"
               | Minus -> "\tsub rax, rdi"
-              | Mul -> "\timul rax, rdi" in
+              | Mul -> "\timul rax, rdi"
+              | Div -> "\tcqo\n\tidiv rdi\n" in
             return @@ lcom  @ rcom @  ["\tpop rdi"; "\tpop rax"; op; "\tpush rax"])
 
 let () =
