@@ -77,7 +77,7 @@ let tokenize input =
              return @@ Result.return []
            else
              let c = String.get input i in
-             let+ () = put @@ i + 1 in
+             let+ () = put (i + 1) in
              match c with
              | '0' .. '9' ->
                let+ n = int @@ atoi c in
@@ -85,24 +85,21 @@ let tokenize input =
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
              | '+' | '-' | '*' | '/' ->
-               let+ ts = Lazy.force aux in
-               let tokens = Result.(
-                   match op_of_char c with
-                   | None -> error @@ `TokenizerError (i, "unexpected token")
-                   | Some op ->
-                     let* us = ts in
-                     return @@ (Reserved(i, op))::us) in
-               return tokens
+               begin match op_of_char c with
+                 | None -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")
+                 | Some op ->
+                   let+ ts = Lazy.force aux in
+                   return Result.(let* us = ts in
+                                  return @@ Reserved(i, op)::us)
+               end
              | '(' ->
                let+ ts = Lazy.force aux in
-               let tokens = Result.(let* us = ts in
-                                    return @@ (LParen i ::us)) in
-               return tokens
+               return  Result.(let* us = ts in
+                               return @@ (LParen i::us))
              | ')' ->
                let+ ts = Lazy.force aux in
-               let tokens = Result.(let* us = ts in
-                                    return @@ (RParen i ::us)) in
-               return tokens
+               return  Result.(let* us = ts in
+                               return @@ (RParen i ::us))
              | _ -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")) in
   State.evalState (Lazy.force aux) 0
 
