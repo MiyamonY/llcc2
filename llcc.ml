@@ -20,6 +20,7 @@ type op =
   | Div
   | Eq
   | Neq
+  | Lt
 
 let string_of_op = function
   | Plus -> "+"
@@ -28,12 +29,14 @@ let string_of_op = function
   | Div -> "/"
   | Eq -> "=="
   | Neq -> "!="
+  | Lt -> "<"
 
 let op_of_char = function
   | '+'-> Some Plus
   | '-'-> Some Minus
   | '*' -> Some Mul
   | '/' -> Some Div
+  | '<' -> Some Lt
   | _ -> None
 
 type token =
@@ -95,7 +98,7 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
-             | '+' | '-' | '*' | '/' | '=' | '!' ->
+             | '+' | '-' | '*' | '/' | '=' | '!' | '<' ->
                begin match op_of_char c with
                  | None ->
                    let+ i = get in
@@ -248,7 +251,31 @@ and add =
   lazy State.(let+ left = Lazy.force mul in
               star left)
 
-(* equality = add ("==" add | "!=" add) * *)
+(* relational = add ("<" add) * *)
+and relational =
+  let rec star left =
+    State.(let+ token = peek in
+           match token with
+           | None -> return left
+           | Some t ->
+             match t with
+             | Reserved (i, op) ->
+               begin match op with
+                 | Lt ->
+                   let+ _ = next in
+                   let+ right = Lazy.force add in
+                   let n = Result.(let* lnode = left in
+                                   let* rnode = right in
+                                   return @@ BinaryOp (i, op, lnode, rnode)) in
+                   star n
+                 | _ -> return left
+               end
+             | _ -> return left) in
+
+  lazy State.(let+ left = Lazy.force add in
+              star left)
+
+(* equality = relational ("==" relational | "!=" relational) * *)
 and equality =
   let rec star left =
     State.(let+ token = peek in
@@ -260,7 +287,7 @@ and equality =
                begin match op with
                  | Eq | Neq ->
                    let+ _ = next in
-                   let+ right = Lazy.force add in
+                   let+ right = Lazy.force relational in
                    let n = Result.(let* lnode = left in
                                    let* rnode = right in
                                    return @@ BinaryOp (i, op, lnode, rnode)) in
@@ -269,10 +296,10 @@ and equality =
                    return left
                end
              | _ -> return left) in
-  lazy State.(let+ left = Lazy.force add in
+  lazy State.(let+ left = Lazy.force relational in
               star left)
 
-(*  expr = add *)
+(*  expr = equality *)
 and expr = lazy
   (Lazy.force equality)
 
@@ -311,7 +338,10 @@ let generate parsed =
                  Machine "movzb rax, al"]
         | Neq -> [Machine "cmp rax, rdi";
                   Machine "setne al";
-                  Machine "movzb rax, al"] in
+                  Machine "movzb rax, al"]
+        | Lt -> [Machine "cmp rax, rdi";
+                 Machine "setl al";
+                 Machine "movzb rax, al"] in
       lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax";] @ op @ [Machine "push rax"] in
   string_of_commands @@ [Assembler ".intel_syntax noprefix";
                          Assembler ".global main"; Label "main"]
