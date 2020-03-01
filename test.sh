@@ -29,12 +29,13 @@ try() {
 try_error() {
   input="$1"
 
-  "$exe" "$input" > tmp.s
+  "$exe" "$input" > tmp.s 2> /dev/null
   status="$?"
   if [ "$status" = 0 ]; then
       echo "$input. error not occured"
       exit 1
   fi
+  echo "$input => error"
 }
 
 dune build
