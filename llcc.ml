@@ -206,10 +206,11 @@ let rec generate  = function
   | BinaryOp (_, op, left, right) ->
     Result.(let* lcom = generate left in
             let* rcom = generate right in
-            match op with
-            | Plus -> return @@ lcom  @ rcom @  ["\tpop rdi"; "\tpop rax"; "\tadd rax, rdi"; "\tpush rax"]
-            | Minus -> return @@ lcom @ rcom @ ["\tpop rdi"; "\tpop rax"; "\tsub rax, rdi"; "\tpush rax"]
-            | Mul -> return @@ lcom @ rcom @ ["\tpop rdi"; "\tpop rax"; "\timul rax, rdi"; "\tpush rax"])
+            let op = match op with
+              | Plus -> "\tadd rax, rdi"
+              | Minus -> "\tsub rax, rdi"
+              | Mul -> "\timul rax, rdi" in
+            return @@ lcom  @ rcom @  ["\tpop rdi"; "\tpop rax"; op; "\tpush rax"])
 
 let () =
   (if Array.length Sys.argv != 2 then
