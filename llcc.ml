@@ -153,18 +153,24 @@ let rec primary = lazy
              end
            | _ -> return @@ Error (`ParserError (token_pos token, "unexpected token")))
 
-(* unary = "+"? primary *)
+(* unary = ("+" | "-")? primary *)
 and unary = lazy
   State.(let+ t = peek in
          match t with
          | None -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
          | Some token ->
            match token with
-           | Reserved (_, op) ->
+           | Reserved (i, op) ->
              begin match op with
                | Plus ->
                  let+ _ = next in
                  Lazy.force primary
+               | Minus ->
+                 let+ _ = next in
+                 let+ node = Lazy.force primary in
+                 return Result.(
+                     let* n = node in
+                     return @@ BinaryOp(i, Minus, Number (i, 0), n))
                | _ -> Lazy.force primary
              end
            | _ -> Lazy.force primary)
