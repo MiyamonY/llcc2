@@ -62,6 +62,8 @@ try 1 "2+3*3== 3*3+2"
 try 0 "1==0"
 try 0 "(1==0+2) * (1==1)"
 try 0 "3*2==4+3"
+try 0 "1!=1"
+try 1 "1!=0"
 
 try_error "234+24-a"
 try_error "1-(4-3"
@@ -76,5 +78,8 @@ try_error "2+--3"
 try_error "2===4"
 try_error "==2-4"
 try_error "2*==3"
+try_error "2!==3"
+try_error "!=2"
+try_error "2!="
 
 echo OK

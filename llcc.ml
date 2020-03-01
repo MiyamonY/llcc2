@@ -19,6 +19,7 @@ type op =
   | Mul
   | Div
   | Eq
+  | Neq
 
 let print_op = function
   | Plus -> "+"
@@ -26,6 +27,7 @@ let print_op = function
   | Mul -> "*"
   | Div -> "/"
   | Eq -> "=="
+  | Neq -> "!="
 
 let op_of_char = function
   | '+'-> Some Plus
@@ -93,7 +95,7 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
-             | '+' | '-' | '*' | '/' | '=' ->
+             | '+' | '-' | '*' | '/' | '=' | '!' ->
                begin match op_of_char c with
                  | None ->
                    let+ i = get in
@@ -104,6 +106,11 @@ let tokenize input =
                        let+ ts = Lazy.force aux in
                        return Result.(let* us = ts in
                                       return @@ Reserved(i, Eq)::us)
+                     | '!',  '=' ->
+                       let+ () = put (i+1) in
+                       let+ ts = Lazy.force aux in
+                       return Result.(let* us = ts in
+                                      return @@ Reserved(i, Neq):: us)
                      | _, _ ->
                        return @@ Result.error @@ `TokenizerError (i, "unexpected token")
                    end
@@ -241,7 +248,7 @@ and add =
   lazy State.(let+ left = Lazy.force mul in
               star left)
 
-(* equality = add ("==" add) * *)
+(* equality = add ("==" add | "!=" add) * *)
 and equality =
   let rec star left =
     State.(let+ token = peek in
@@ -251,7 +258,7 @@ and equality =
              match t with
              | Reserved (i, op) ->
                begin match op with
-                 | Eq ->
+                 | Eq | Neq ->
                    let+ _ = next in
                    let+ right = Lazy.force add in
                    let n = Result.(let* lnode = left in
@@ -301,7 +308,10 @@ let generate parsed =
                   Machine "idiv rdi"]
         | Eq -> [Machine "cmp rax, rdi";
                  Machine "sete al";
-                 Machine "movzb rax, al"] in
+                 Machine "movzb rax, al"]
+        | Neq -> [Machine "cmp rax, rdi";
+                  Machine "setne al";
+                  Machine "movzb rax, al"] in
       lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax";] @ op @ [Machine "push rax"] in
   string_of_commands @@ [Assembler ".intel_syntax noprefix";
                          Assembler ".global main"; Label "main"]
