@@ -21,7 +21,7 @@ type op =
   | Eq
   | Neq
 
-let print_op = function
+let string_of_op = function
   | Plus -> "+"
   | Minus -> "-"
   | Mul -> "*"
@@ -44,7 +44,7 @@ type token =
 
 let string_of_token token =
   match token with
-  | Reserved (_, op) -> Printf.sprintf "Reserved(%s)" @@ print_op op
+  | Reserved (_, op) -> Printf.sprintf "Reserved(%s)" @@ string_of_op op
   | Num (_, n) -> Printf.sprintf "Num(%d)" n
   | LParen _ -> "LParen"
   | RParen _ -> "RParen"
@@ -139,7 +139,7 @@ let rec print_node = function
   | BinaryOp(_, op, l, r) ->
     let sl = print_node l in
     let sr = print_node r in
-    Printf.sprintf "BinaryOp(%s,%s,%s)\n" (print_op op) sl sr
+    Printf.sprintf "BinaryOp(%s,%s,%s)\n" (string_of_op op) sl sr
 
 let peek =
   State.(let+ tokens = get in
