@@ -97,31 +97,41 @@ let rec print_node = function
     let sr = print_node r in
     Printf.sprintf "BinaryOp(%s,%s,%s)\n" (print_op op) sl sr
 
-(* primary = num | "(" expr ")" *)
-let rec primary = lazy
+let peek =
   State.(let+ tokens = get in
          match tokens with
-         | [] -> return @@ Error "a token exhausted"
-         | t :: rest->
-           match t with
+         | [] -> return None
+         | t:: _ -> return @@ Some t)
+
+let next =
+  State.(let+ tokens = get in
+         match tokens with
+         | [] -> return @@ Error "token exhausted"
+         | _::rest ->
+           let+ () = put rest in return @@ Ok ())
+
+(* primary = num | "(" expr ")" *)
+let rec primary = lazy
+  State.(let+ t = peek in
+         match t with
+         | None -> return @@ Error "token exhausted"
+         | Some token ->
+           match token with
            | Num (i, n) ->
-             let+ () = put rest in
-             return @@ Ok (Number (i, n))
+             let+ _ = next in return @@ Ok (Number (i, n))
            | LParen _ ->
-             let+ () = put rest in
+             let+ _ = next in
              let+ e = Lazy.force expr in
-             let+ tokens = get in
+             let+ token = peek in
              begin
-               match tokens with
-               | [] -> return @@ Error "token exhausted"
-               | t :: rest ->
-                 let+ () = put rest in
+               match token with
+               | None -> return @@ Error "token exhausted"
+               | Some t ->
                  match t with
-                 | RParen _ -> return e
+                 | RParen _ -> let+ _ = next in return e
                  | _ -> return @@ Error "unexpected token"
              end
-           | _ ->
-             return @@ Error "unexpected token")
+           | _ -> return @@ Error "unexpected token")
 
 (* mul = primary *)
 and mul = lazy (Lazy.force primary)
@@ -129,13 +139,13 @@ and mul = lazy (Lazy.force primary)
 (* expr  = mul ("+" mul | "-" mul)* *)
 and expr =
   let rec star left =
-    State.(let+ tokens = get in
-           match tokens with
-           | [] -> return left
-           | t::rest ->
+    State.(let+ token = peek in
+           match token with
+           | None -> return left
+           | Some t ->
              match t with
              | Reserved (i, op) ->
-               let+ () = put rest in
+               let+ _ = next in
                let+ right = Lazy.force mul in
                let n = Result.(let* lnode = left in
                                let* rnode = right in
