@@ -23,6 +23,7 @@ type op =
   | Lt
   | Le
   | Gt
+  | Ge
 
 let string_of_op = function
   | Plus -> "+"
@@ -34,6 +35,7 @@ let string_of_op = function
   | Lt -> "<"
   | Le -> "<="
   | Gt -> ">"
+  | Ge -> ">="
 
 let op_of_string = function
   | "+"-> Some Plus
@@ -44,6 +46,8 @@ let op_of_string = function
   | "<=" -> Some Le
   | "==" -> Some Eq
   | "!=" -> Some Neq
+  | ">" -> Some Gt
+  | ">=" -> Some Ge
   | _ -> None
 
 let op_of_char = function
@@ -265,7 +269,7 @@ and add =
   lazy State.(let+ left = Lazy.force mul in
               star left)
 
-(* relational = add ("<" add | "<=" add | ">" add) * *)
+(* relational = add ("<" add | "<=" add | ">" add | ">=" add) * *)
 and relational =
   let rec star left =
     State.(let+ token = peek in
@@ -275,7 +279,7 @@ and relational =
              match t with
              | Reserved (i, op) ->
                begin match op with
-                 | Lt | Le | Gt ->
+                 | Lt | Le | Gt | Ge ->
                    let+ _ = next in
                    let+ right = Lazy.force add in
                    let n = Result.(let* lnode = left in
@@ -283,6 +287,8 @@ and relational =
                                    return (
                                      if op = Gt then
                                        BinaryOp (i, Lt, rnode, lnode)
+                                     else if op = Ge then
+                                       BinaryOp (i, Le, rnode, lnode)
                                      else
                                        BinaryOp (i, op, lnode, rnode))) in
                    star n
