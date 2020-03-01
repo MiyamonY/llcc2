@@ -22,6 +22,7 @@ type op =
   | Neq
   | Lt
   | Le
+  | Gt
 
 let string_of_op = function
   | Plus -> "+"
@@ -32,6 +33,7 @@ let string_of_op = function
   | Neq -> "!="
   | Lt -> "<"
   | Le -> "<="
+  | Gt -> ">"
 
 let op_of_string = function
   | "+"-> Some Plus
@@ -50,6 +52,7 @@ let op_of_char = function
   | '*' -> Some Mul
   | '/' -> Some Div
   | '<' -> Some Lt
+  | '>' -> Some Gt
   | _ -> None
 
 type token =
@@ -84,6 +87,9 @@ let error_message  = function
   | `ParserError (i, msg) ->
     let sep = String.repeat " " i in
     Printf.sprintf "Parser error:\n%s\n%s^ %s" !input sep msg
+  | `GeneratorError (i, msg) ->
+    let sep = String.repeat " " i in
+    Printf.sprintf "Generator error:\n%s\n%s^ %s" !input sep msg
 
 let rec int n =
   State.(let+ i = get in
@@ -111,13 +117,14 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
-             | '+' | '-' | '*' | '/' | '=' | '!' | '<' ->
+             | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' ->
                let+ i = get in
                let c1 = String.get input i in
                begin match op_of_string @@ String.of_list [c; c1] with
                  | None ->
                    begin match op_of_char c with
-                     | None -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")
+                     | None ->
+                       return @@ Result.error @@ `TokenizerError (i, "unexpected token")
                      | Some op ->
                        let+ ts = Lazy.force aux in
                        return Result.(let* us = ts in
@@ -258,7 +265,7 @@ and add =
   lazy State.(let+ left = Lazy.force mul in
               star left)
 
-(* relational = add ("<" add | "<=" add) * *)
+(* relational = add ("<" add | "<=" add | ">" add) * *)
 and relational =
   let rec star left =
     State.(let+ token = peek in
@@ -268,12 +275,16 @@ and relational =
              match t with
              | Reserved (i, op) ->
                begin match op with
-                 | Lt | Le ->
+                 | Lt | Le | Gt ->
                    let+ _ = next in
                    let+ right = Lazy.force add in
                    let n = Result.(let* lnode = left in
                                    let* rnode = right in
-                                   return @@ BinaryOp (i, op, lnode, rnode)) in
+                                   return (
+                                     if op = Gt then
+                                       BinaryOp (i, Lt, rnode, lnode)
+                                     else
+                                       BinaryOp (i, op, lnode, rnode))) in
                    star n
                  | _ -> return left
                end
@@ -330,33 +341,35 @@ let string_of_commands = (String.concat "\n" % List.map string_of_command)
 let generate parsed =
   let rec aux = function
     | Number (_, n) ->
-      [Machine (Printf.sprintf "push %d" n)]
-    | BinaryOp (_, op, left, right) ->
-      let lcom = aux left in
-      let rcom = aux right in
-      let op = match op with
-        | Plus -> [Machine "add rax, rdi"]
-        | Minus -> [Machine "sub rax, rdi"]
-        | Mul -> [Machine "imul rax, rdi"]
-        | Div -> [Machine "cqo";
-                  Machine "idiv rdi"]
-        | Eq -> [Machine "cmp rax, rdi";
-                 Machine "sete al";
-                 Machine "movzb rax, al"]
-        | Neq -> [Machine "cmp rax, rdi";
-                  Machine "setne al";
-                  Machine "movzb rax, al"]
-        | Lt -> [Machine "cmp rax, rdi";
-                 Machine "setl al";
-                 Machine "movzb rax, al"]
-        | Le -> [Machine "cmp rax, rdi";
-                 Machine "setle al";
-                 Machine "movzb rax, al"] in
-      lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax";] @ op @ [Machine "push rax"] in
-  string_of_commands @@ [Assembler ".intel_syntax noprefix";
-                         Assembler ".global main"; Label "main"]
-                        @ aux parsed
-                        @ [Machine "pop rax"; Machine "ret"]
+      Result.(return [Machine (Printf.sprintf "push %d" n)])
+    | BinaryOp (i, op, left, right) ->
+      Result.(let* lcom = aux left in
+              let* rcom = aux right in
+              let* com = match op with
+                | Plus -> return [Machine "add rax, rdi"]
+                | Minus -> return [Machine "sub rax, rdi"]
+                | Mul -> return [Machine "imul rax, rdi"]
+                | Div -> return [Machine "cqo";
+                                 Machine "idiv rdi"]
+                | Eq -> return [Machine "cmp rax, rdi";
+                                Machine "sete al";
+                                Machine "movzb rax, al"]
+                | Neq -> return [Machine "cmp rax, rdi";
+                                 Machine "setne al";
+                                 Machine "movzb rax, al"]
+                | Lt -> return [Machine "cmp rax, rdi";
+                                Machine "setl al";
+                                Machine "movzb rax, al"]
+                | Le -> return [Machine "cmp rax, rdi";
+                                Machine "setle al";
+                                Machine "movzb rax, al"]
+                | _ -> error @@ `GeneratorError (i, "invalid operator") in
+              return @@ lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax";] @ com @ [Machine "push rax"]) in
+  Result.(let* commands = aux parsed in
+          return @@ string_of_commands @@ [Assembler ".intel_syntax noprefix";
+                                           Assembler ".global main"; Label "main"]
+                                          @ commands
+                                          @ [Machine "pop rax"; Machine "ret"])
 
 let () =
   (if Array.length Sys.argv != 2 then
@@ -367,7 +380,7 @@ let () =
        Result.(let* tokens = tokenize !input in
                let (parsed, _) = State.runState parse tokens in
                let* p = parsed in
-               return @@ generate p)
+               generate p)
      end)
   |> Result.fold ~ok:(fun s -> Printf.printf "%s\n" s;0)
     ~error:(fun s -> Printf.eprintf "%s\n" @@ error_message s ;1)

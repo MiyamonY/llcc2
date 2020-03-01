@@ -72,6 +72,9 @@ try 0 "1<=0"
 try 1 "1<=1"
 try 1 "1<= 2"
 try 1 "2<=1*3"
+try 0 "2>3"
+try 0 "3>3"
+try 1 "4>3"
 
 try_error "234+24-a"
 try_error "1-(4-3"
@@ -95,5 +98,7 @@ try_error "()<("
 try_error "< <"
 try_error "<=<="
 try_error "<3<2"
+try_error ">3"
+try_error "><"
 
 echo OK
