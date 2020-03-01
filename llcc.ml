@@ -153,7 +153,23 @@ let rec primary = lazy
              end
            | _ -> return @@ Error (`ParserError (token_pos token, "unexpected token")))
 
-(* mul = primary ("*" primary | "/" primary)* *)
+(* unary = "+"? primary *)
+and unary = lazy
+  State.(let+ t = peek in
+         match t with
+         | None -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
+         | Some token ->
+           match token with
+           | Reserved (_, op) ->
+             begin match op with
+               | Plus ->
+                 let+ _ = next in
+                 Lazy.force primary
+               | _ -> Lazy.force primary
+             end
+           | _ -> Lazy.force primary)
+
+(* mul = unary ("*" unary | "/" unary)* *)
 and mul =
   let rec star left =
     State.(let+ token = peek in
@@ -165,7 +181,7 @@ and mul =
                begin match op with
                  | Mul | Div ->
                    let+ _ = next in
-                   let+ right = Lazy.force primary in
+                   let+ right = Lazy.force unary in
                    let n = Result.(let* lnode = left in
                                    let* rnode = right in
                                    return @@ BinaryOp (i, op, lnode, rnode)) in
@@ -173,7 +189,7 @@ and mul =
                  | _ -> return left
                end
              | _ -> return left) in
-  lazy State.(let+ left =  Lazy.force primary in
+  lazy State.(let+ left =  Lazy.force unary in
               star left)
 
 (* expr  = mul ("+" mul | "-" mul)* *)

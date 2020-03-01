@@ -39,8 +39,8 @@ try_error() {
 
 dune build
 
-try 0 0
-try 42 42
+try 0 "0"
+try 42 "42"
 try 5 "3+2"
 try 10 "7-2+5"
 try 21 "5+20-4"
@@ -53,13 +53,16 @@ try 7 "1+2*3"
 try 1 "3*3/3/3"
 try 2 "3/3*2"
 try 16 "(2+2)*(3/3+3*1)"
+try 9 "+3*+3*(+2-+1)"
 
 try_error "234+24-a"
 try_error "-23+3"
-try_error "23++23"
 try_error "1-(4-3"
 try_error ")+1+2 "
-try_error "2*+3"
+try_error "2**3"
 try_error "3*2*"
+try_error "23+++23"
+try_error "32*++23"
+try_error "++32*2"
 
 echo OK
