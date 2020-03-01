@@ -18,12 +18,14 @@ type op =
   | Minus
   | Mul
   | Div
+  | Eq
 
 let print_op = function
   | Plus -> "+"
   | Minus -> "-"
   | Mul -> "*"
   | Div -> "/"
+  | Eq -> "=="
 
 let op_of_char = function
   | '+'-> Some Plus
@@ -37,6 +39,13 @@ type token =
   | Num of pos * int
   | LParen of pos
   | RParen of pos
+
+let string_of_token token =
+  match token with
+  | Reserved (_, op) -> Printf.sprintf "Reserved(%s)" @@ print_op op
+  | Num (_, n) -> Printf.sprintf "Num(%d)" n
+  | LParen _ -> "LParen"
+  | RParen _ -> "RParen"
 
 let token_pos = function
   | Reserved (p, _) -> p
@@ -84,9 +93,20 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
-             | '+' | '-' | '*' | '/' ->
+             | '+' | '-' | '*' | '/' | '=' ->
                begin match op_of_char c with
-                 | None -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")
+                 | None ->
+                   let+ i = get in
+                   let c1 = String.get input i in
+                   begin match c, c1 with
+                     | '=', '=' ->
+                       let+ () = put (i+1) in
+                       let+ ts = Lazy.force aux in
+                       return Result.(let* us = ts in
+                                      return @@ Reserved(i, Eq)::us)
+                     | _, _ ->
+                       return @@ Result.error @@ `TokenizerError (i, "unexpected token")
+                   end
                  | Some op ->
                    let+ ts = Lazy.force aux in
                    return Result.(let* us = ts in
@@ -135,7 +155,8 @@ let rec primary = lazy
          | Some token ->
            match token with
            | Num (i, n) ->
-             let+ _ = next in return Result.(return @@ Number (i, n))
+             let+ _ = next in
+             return Result.(return @@ Number (i, n))
            | LParen _ ->
              let+ _ = next in
              let+ e = Lazy.force expr in
@@ -146,9 +167,11 @@ let rec primary = lazy
                | Some t ->
                  match t with
                  | RParen _ -> let+ _ = next in return e
-                 | _   -> return @@ Result.error @@ `ParserError (token_pos t, "unexpected token")
+                 | _   -> return @@ Result.error @@
+                   `ParserError (token_pos t, Printf.sprintf "unexpected token: %s" @@ string_of_token t)
              end
-           | _ -> return @@ Result.error @@ `ParserError (token_pos token, "unexpected token"))
+           | _ -> return @@ Result.error @@
+             `ParserError (token_pos token, Printf.sprintf "unexpected token: %s" @@ string_of_token token))
 
 (* unary = ("+" | "-")? primary *)
 and unary = lazy
@@ -195,8 +218,8 @@ and mul =
   lazy State.(let+ left =  Lazy.force unary in
               star left)
 
-(* expr  = mul ("+" mul | "-" mul)* *)
-and expr =
+(* add  = mul ("+" mul | "-" mul)* *)
+and add =
   let rec star left =
     State.(let+ token = peek in
            match token with
@@ -215,8 +238,36 @@ and expr =
                  | _ -> return left
                end
              | _ -> return left) in
-  lazy State.(let+ left =  Lazy.force mul in
+  lazy State.(let+ left = Lazy.force mul in
               star left)
+
+(* equality = add ("==" add) * *)
+and equality =
+  let rec star left =
+    State.(let+ token = peek in
+           match token with
+           | None -> return left
+           | Some t ->
+             match t with
+             | Reserved (i, op) ->
+               begin match op with
+                 | Eq ->
+                   let+ _ = next in
+                   let+ right = Lazy.force add in
+                   let n = Result.(let* lnode = left in
+                                   let* rnode = right in
+                                   return @@ BinaryOp (i, op, lnode, rnode)) in
+                   star n
+                 | _ ->
+                   return left
+               end
+             | _ -> return left) in
+  lazy State.(let+ left = Lazy.force add in
+              star left)
+
+(*  expr = add *)
+and expr = lazy
+  (Lazy.force equality)
 
 (* program = expr *)
 and program = lazy (Lazy.force expr)
@@ -243,11 +294,15 @@ let generate parsed =
       let lcom = aux left in
       let rcom = aux right in
       let op = match op with
-        | Plus -> Machine "add rax, rdi"
-        | Minus -> Machine "sub rax, rdi"
-        | Mul -> Machine "imul rax, rdi"
-        | Div -> Machine "cqo\n\tidiv rdi" in
-      lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax"; op; Machine "push rax"] in
+        | Plus -> [Machine "add rax, rdi"]
+        | Minus -> [Machine "sub rax, rdi"]
+        | Mul -> [Machine "imul rax, rdi"]
+        | Div -> [Machine "cqo";
+                  Machine "idiv rdi"]
+        | Eq -> [Machine "cmp rax, rdi";
+                 Machine "sete al";
+                 Machine "movzb rax, al"] in
+      lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax";] @ op @ [Machine "push rax"] in
   string_of_commands @@ [Assembler ".intel_syntax noprefix";
                          Assembler ".global main"; Label "main"]
                         @ aux parsed
