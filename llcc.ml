@@ -61,14 +61,14 @@ let error_message  = function
 let rec int n =
   State.(let+ i = get in
          if String.length !input = i then
-           return @@ Ok (Num (i, n))
+           return Result.(return @@ Num (i, n))
          else
            let c = String.get !input i in
            match c with
            | '0' .. '9' ->
              let+ () = put @@ i+1 in
              int @@ 10 * n + atoi c
-           | _ -> return @@ Ok (Num (i, n)))
+           | _ -> return Result.(return @@ Num (i, n)))
 
 let tokenize input =
   let rec aux = lazy
@@ -88,7 +88,7 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                let tokens = Result.(
                    match op_of_char c with
-                   | None -> Error (`TokenizerError (i, "unexpected token"))
+                   | None -> error @@ `TokenizerError (i, "unexpected token")
                    | Some op ->
                      let* us = ts in
                      return @@ (Reserved(i, op))::us) in
@@ -103,7 +103,7 @@ let tokenize input =
                let tokens = Result.(let* us = ts in
                                     return @@ (RParen i ::us)) in
                return tokens
-             | _ -> return @@ Error (`TokenizerError (i, "unexpected token"))) in
+             | _ -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")) in
   State.evalState (Lazy.force aux) 0
 
 type node =
@@ -126,38 +126,38 @@ let peek =
 let next =
   State.(let+ tokens = get in
          match tokens with
-         | [] -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
+         | [] -> return @@ Result.error @@ `ParserError (String.length !input, "token exhausted")
          | _::rest ->
-           let+ () = put rest in return @@ Ok ())
+           let+ () = put rest in return Result.(return ()))
 
 (* primary = num | "(" expr ")" *)
 let rec primary = lazy
   State.(let+ t = peek in
          match t with
-         | None -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
+         | None -> return @@ Result.error @@ `ParserError (String.length !input, "token exhausted")
          | Some token ->
            match token with
            | Num (i, n) ->
-             let+ _ = next in return @@ Ok (Number (i, n))
+             let+ _ = next in return Result.(return @@ Number (i, n))
            | LParen _ ->
              let+ _ = next in
              let+ e = Lazy.force expr in
              let+ token = peek in
              begin
                match token with
-               | None -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
+               | None -> return @@ Result.error @@ `ParserError (String.length !input, "token exhausted")
                | Some t ->
                  match t with
                  | RParen _ -> let+ _ = next in return e
-                 | _   -> return @@ Error (`ParserError (token_pos t, "unexpected token"))
+                 | _   -> return @@ Result.error @@ `ParserError (token_pos t, "unexpected token")
              end
-           | _ -> return @@ Error (`ParserError (token_pos token, "unexpected token")))
+           | _ -> return @@ Result.error @@ `ParserError (token_pos token, "unexpected token"))
 
 (* unary = ("+" | "-")? primary *)
 and unary = lazy
   State.(let+ t = peek in
          match t with
-         | None -> return @@ Error (`ParserError (String.length !input, "token exhausted"))
+         | None -> return @@ Result.error @@ `ParserError (String.length !input, "token exhausted")
          | Some token ->
            match token with
            | Reserved (i, op) ->
@@ -226,31 +226,46 @@ and program = lazy (Lazy.force expr)
 
 let parse = Lazy.force program
 
-let rec generate  = function
-  | Number (_, n) -> Ok ([Printf.sprintf "\tpush %d" n])
-  | BinaryOp (_, op, left, right) ->
-    Result.(let* lcom = generate left in
-            let* rcom = generate right in
-            let op = match op with
-              | Plus -> "\tadd rax, rdi"
-              | Minus -> "\tsub rax, rdi"
-              | Mul -> "\timul rax, rdi"
-              | Div -> "\tcqo\n\tidiv rdi\n" in
-            return @@ lcom  @ rcom @  ["\tpop rdi"; "\tpop rax"; op; "\tpush rax"])
+type command =
+  | Assembler of string
+  | Label of string
+  | Machine of string
+
+let string_of_command = function
+  | Assembler com -> com
+  | Label com -> Printf.sprintf "%s:" com
+  | Machine com -> Printf.sprintf "\t%s" com
+
+let string_of_commands = (String.concat "\n" % List.map string_of_command)
+
+let generate parsed =
+  let rec aux = function
+    | Number (_, n) ->
+      [Machine (Printf.sprintf "push %d" n)]
+    | BinaryOp (_, op, left, right) ->
+      let lcom = aux left in
+      let rcom = aux right in
+      let op = match op with
+        | Plus -> Machine "add rax, rdi"
+        | Minus -> Machine "sub rax, rdi"
+        | Mul -> Machine "imul rax, rdi"
+        | Div -> Machine "cqo\n\tidiv rdi" in
+      lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax"; op; Machine "push rax"] in
+  string_of_commands @@ [Assembler ".intel_syntax noprefix";
+                         Assembler ".global main"; Label "main"]
+                        @ aux parsed
+                        @ [Machine "pop rax"; Machine "ret"]
 
 let () =
   (if Array.length Sys.argv != 2 then
-     Error (`ArgumentError "The number of arugument is 1")
+     Result.error (`ArgumentError "The number of arugument is 1")
    else
      begin
        input := Sys.argv.(1);
        Result.(let* tokens = tokenize !input in
                let (parsed, _) = State.runState parse tokens in
                let* p = parsed in
-               let* commands = generate p in
-               return @@ String.concat "\n" @@
-               [".intel_syntax noprefix";
-                ".global main"; "main:"] @ commands @ ["\tpop rax"; "\tret"])
+               return @@ generate p)
      end)
   |> Result.fold ~ok:(fun s -> Printf.printf "%s\n" s;0)
     ~error:(fun s -> Printf.eprintf "%s\n" @@ error_message s ;1)
