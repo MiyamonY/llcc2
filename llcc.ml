@@ -16,14 +16,17 @@ type pos = int
 type op =
   | Plus
   | Minus
+  | Mul
 
 let print_op = function
   | Plus -> "+"
   | Minus -> "-"
+  | Mul -> "*"
 
 let op_of_char = function
   | '+'-> Some Plus
   | '-'-> Some Minus
+  | '*' -> Some Mul
   | _ -> None
 
 type token =
@@ -78,7 +81,7 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
-             | '+' | '-' ->
+             | '+' | '-' | '*' ->
                let+ ts = Lazy.force aux in
                let tokens = Result.(
                    match op_of_char c with
@@ -147,8 +150,28 @@ let rec primary = lazy
              end
            | _ -> return @@ Error (`ParserError (token_pos token, "unexpected token")))
 
-(* mul = primary *)
-and mul = lazy (Lazy.force primary)
+(* mul = primary ("*" mul)* *)
+and mul =
+  let rec star left =
+    State.(let+ token = peek in
+           match token with
+           | None -> return left
+           | Some t ->
+             match t with
+             | Reserved (i, op) ->
+               begin match op with
+                 | Mul ->
+                   let+ _ = next in
+                   let+ right = Lazy.force mul in
+                   let n = Result.(let* lnode = left in
+                                   let* rnode = right in
+                                   return @@ BinaryOp (i, op, lnode, rnode)) in
+                   star n
+                 | _ -> return left
+               end
+             | _ -> return left) in
+  lazy State.(let+ left =  Lazy.force primary in
+              star left)
 
 (* expr  = mul ("+" mul | "-" mul)* *)
 and expr =
@@ -159,12 +182,16 @@ and expr =
            | Some t ->
              match t with
              | Reserved (i, op) ->
-               let+ _ = next in
-               let+ right = Lazy.force mul in
-               let n = Result.(let* lnode = left in
-                               let* rnode = right in
-                               return @@ BinaryOp (i, op, lnode, rnode)) in
-               star n
+               begin match op with
+                 | Plus | Minus ->
+                   let+ _ = next in
+                   let+ right = Lazy.force mul in
+                   let n = Result.(let* lnode = left in
+                                   let* rnode = right in
+                                   return @@ BinaryOp (i, op, lnode, rnode)) in
+                   star n
+                 | _ -> return left
+               end
              | _ -> return left) in
   lazy State.(let+ left =  Lazy.force mul in
               star left)
@@ -181,7 +208,8 @@ let rec generate  = function
             let* rcom = generate right in
             match op with
             | Plus -> return @@ lcom  @ rcom @  ["\tpop rdi"; "\tpop rax"; "\tadd rax, rdi"; "\tpush rax"]
-            | Minus -> return @@ lcom @ rcom @ ["\tpop rdi"; "\tpop rax"; "\tsub rax, rdi"; "\tpush rax"])
+            | Minus -> return @@ lcom @ rcom @ ["\tpop rdi"; "\tpop rax"; "\tsub rax, rdi"; "\tpush rax"]
+            | Mul -> return @@ lcom @ rcom @ ["\tpop rdi"; "\tpop rax"; "\timul rax, rdi"; "\tpush rax"])
 
 let () =
   (if Array.length Sys.argv != 2 then
