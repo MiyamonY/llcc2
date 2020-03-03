@@ -24,6 +24,11 @@ let at = function
   | LParen p -> p
   | RParen p  -> p
 
+let next =
+  State.(let+ i = get in
+         let+ () = put @@ i+1 in
+         return ())
+
 let rec int input n =
   State.(let+ i = get in
          if String.length input = i then
@@ -32,7 +37,7 @@ let rec int input n =
            let c = String.get input i in
            match c with
            | '0' .. '9' ->
-             let+ () = put @@ i+1 in
+             let+ () = next in
              int input @@ 10 * n + atoi c
            | _ -> return Result.(return @@ Num (i, n)))
 
@@ -43,7 +48,7 @@ let tokenize input =
              return @@ Result.return []
            else
              let c = String.get input i in
-             let+ () = put (i + 1) in
+             let+ () = next in
              match c with
              | '0' .. '9' ->
                let+ n = int input @@ atoi c in
@@ -64,7 +69,7 @@ let tokenize input =
                                       return @@ Reserved(i, op)::us)
                    end
                  | Some op ->
-                   let+ () = put (i+1) in
+                   let+ () = next in
                    let+ ts = Lazy.force aux in
                    return Result.(let* us = ts in
                                   return @@ Reserved(i, op)::us)
