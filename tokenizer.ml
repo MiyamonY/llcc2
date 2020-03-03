@@ -9,6 +9,7 @@ type t =
   | Num of pos * int
   | LParen of pos
   | RParen of pos
+  | Var of pos*char
 
 let atoi c = Char.code c - Char.code '0'
 
@@ -17,12 +18,14 @@ let to_string = function
   | Num (_, n) -> Printf.sprintf "Num(%d)" n
   | LParen _ -> "LParen"
   | RParen _ -> "RParen"
+  | Var (_, c) -> Printf.sprintf "Variable(%c)" c
 
 let at = function
   | Reserved (p, _) -> p
   | Num (p, _) -> p
   | LParen p -> p
   | RParen p  -> p
+  | Var(p, _)-> p
 
 let next =
   State.(let+ i = get in
@@ -76,11 +79,15 @@ let tokenize input =
                end
              | '(' ->
                let+ ts = Lazy.force aux in
-               return  Result.(let* us = ts in
-                               return @@ (LParen i::us))
+               return Result.(let* us = ts in
+                              return @@ (LParen i::us))
              | ')' ->
                let+ ts = Lazy.force aux in
-               return  Result.(let* us = ts in
-                               return @@ (RParen i ::us))
+               return Result.(let* us = ts in
+                              return @@ (RParen i ::us))
+             | 'a' .. 'z' ->
+               let+ ts = Lazy.force aux in
+               return Result.(let* us = ts in
+                              return @@ (Var (i, c)::us))
              | _ -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")) in
   State.evalState (Lazy.force aux) 0

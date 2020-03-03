@@ -9,6 +9,7 @@ type t =
   | Le
   | Gt
   | Ge
+  | Assign
 
 let to_string = function
   | Plus -> "+"
@@ -21,6 +22,7 @@ let to_string = function
   | Le -> "<="
   | Gt -> ">"
   | Ge -> ">="
+  | Assign -> "="
 
 let op_of_string = function
   | "+"-> Some Plus
@@ -42,4 +44,5 @@ let op_of_char = function
   | '/' -> Some Div
   | '<' -> Some Lt
   | '>' -> Some Gt
+  | '=' -> Some Assign
   | _ -> None

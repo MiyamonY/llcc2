@@ -5,6 +5,7 @@ type t =
   | Num of pos * int
   | LParen of pos
   | RParen of pos
+  | Var of pos * char
 
 val tokenize: string -> (t list, [> `TokenizerError of pos * string ]) BatResult.t
 
