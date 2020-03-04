@@ -8,6 +8,8 @@ type node =
   | BinaryOp of pos * Operator.t * node * node
   | Variable of pos * char
 
+type program = node list
+
 let at = function
   | Number (p, _) -> p
   | BinaryOp (p, _, _, _) -> p
@@ -214,8 +216,21 @@ and assign =
 and expr = lazy
   (Lazy.force assign)
 
-(* program = expr *)
-and program = lazy (Lazy.force expr)
+(* stmt = expr ";" *)
+and stmt  = lazy
+  State.(let+ st = Lazy.force expr in
+         let+ token = peek in
+         match token with
+         | None ->
+           return Result.(error @@ `ParserError (-1, "token exhausted"))
+         | Some t ->
+           match t with
+           | Sep _ -> return @@ st
+           | _ ->
+             return Result.(error @@ `ParserError (Tokenizer.at t, Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)))
+
+(* program = stmt *)
+and program = lazy (Lazy.force stmt)
 
 let parse =
   Lazy.force program

@@ -10,6 +10,7 @@ type t =
   | LParen of pos
   | RParen of pos
   | Var of pos*char
+  | Sep of pos
 
 let atoi c = Char.code c - Char.code '0'
 
@@ -19,13 +20,15 @@ let to_string = function
   | LParen _ -> "LParen"
   | RParen _ -> "RParen"
   | Var (_, c) -> Printf.sprintf "Variable(%c)" c
+  | Sep _ -> "Sep"
 
 let at = function
   | Reserved (p, _) -> p
   | Num (p, _) -> p
   | LParen p -> p
   | RParen p  -> p
-  | Var(p, _)-> p
+  | Var (p, _)-> p
+  | Sep p -> p
 
 let next =
   State.(let+ i = get in
@@ -85,6 +88,10 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* us = ts in
                               return @@ (RParen i ::us))
+             | ';' ->
+               let+ ts = Lazy.force aux in
+               return Result.(let* us = ts in
+                              return @@ (Sep i :: us))
              | 'a' .. 'z' ->
                let+ ts = Lazy.force aux in
                return Result.(let* us = ts in
