@@ -225,12 +225,23 @@ and stmt  = lazy
            return Result.(error @@ `ParserError (-1, "token exhausted"))
          | Some t ->
            match t with
-           | Sep _ -> return @@ st
+           | Sep _ ->
+             let+ _ = next in
+             return @@ st
            | _ ->
              return Result.(error @@ `ParserError (Tokenizer.at t, Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)))
 
-(* program = stmt *)
-and program = lazy (Lazy.force stmt)
+(* program = stmt* *)
+and program = lazy
+  State.(let+ token = peek in
+         match token with
+         | None -> return Result.(return [])
+         | Some _ ->
+           let+ st = Lazy.force stmt in
+           let+ sts = Lazy.force program in
+           return Result.(let* s = st in
+                          let* ss = sts in
+                          return @@ s::ss))
 
 let parse =
   Lazy.force program
