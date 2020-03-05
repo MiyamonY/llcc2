@@ -11,12 +11,16 @@ type node =
 
 type program = node list
 
-let local = ref []
+module Local = struct
+  let local = ref []
 
-let local_assign_size local = 8 * (List.length !local)
+  let assign_size () = 8 * (List.length !local)
 
-let add_varaible local name =
-  local := (name, 8 * (List.length !local)) :: !local
+  let find name = List.assoc_opt name !local
+
+  let add_varaible name =
+    local := (name, 8 * (List.length !local)) :: !local
+end
 
 let at = function
   | Number (p, _) -> p
@@ -68,8 +72,8 @@ let rec primary = lazy
              return Result.(return @@ Number (i, n))
            | Var (i, name) ->
              let+ _ = next in
-             begin match List.assoc_opt name !local with
-               | None -> add_varaible local name
+             begin match Local.find name with
+               | None -> Local.add_varaible name
                | Some _ -> ()
              end;
              return Result.(return @@ Variable(i, name))

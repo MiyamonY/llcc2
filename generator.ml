@@ -18,7 +18,7 @@ let offset c =
 
 let generate_lval = function
   | Variable(i, name) ->
-    begin match List.assoc_opt name !local with
+    begin match Local.find name with
       | None ->
         Result.(error @@ `GeneratorError (Some i, Printf.sprintf "variable %s not found" name))
       | Some n ->
@@ -84,7 +84,7 @@ let generate parsed =
            Assembler ".global main"; Label "main";
            Machine "push rbp";
            Machine "mov rbp, rsp";
-           Machine (Printf.sprintf "sub rsp, %d" @@ local_assign_size local)]
+           Machine (Printf.sprintf "sub rsp, %d" @@ Local.assign_size ())]
           @ commands
           @ ret
           |> string_of_commands
