@@ -7,6 +7,7 @@ type t =
   | RParen of pos
   | Var of pos * string
   | Sep of pos
+  | Return of pos
 
 val tokenize: string -> (t list, [> `TokenizerError of pos option * string ]) BatResult.t
 

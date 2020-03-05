@@ -85,6 +85,9 @@ try 8 "z=3;z=4;z=5;z+3;"
 try 8 "abc=3;abc+5;"
 try 15 "abc=3;abc*5;"
 try 3 "a=b=c=d=e=f=g=h=i=j=k=l=m=3; g;"
+try 5 "a=5; return a; a+3;"
+try 10 "return 10; return 5; return 0;"
+try 3 "a=1; return a*3;"
 
 try_error "0"
 try_error "2 3;"
@@ -119,5 +122,7 @@ try_error "#==3;"
 try_error "z=3;z=;"
 try_error "z=3;z*3"
 try_error "23a=3;23a"
+try_error "retur 3;"
+try_error "return return;"
 
 echo OK

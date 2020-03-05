@@ -28,6 +28,8 @@ let generate_lval = function
   | _ as n ->
     Result.(error @@ `GeneratorError (Some (at n), Printf.sprintf "%s is not left value" @@ print_node n))
 
+let ret = [Machine "pop rax"; Machine "mov rsp, rbp"; Machine "pop rbp"; Machine "ret"]
+
 let rec generate_node = function
   | Number (_, n) ->
     Result.(return [Machine (Printf.sprintf "push %d" n)])
@@ -62,6 +64,9 @@ let rec generate_node = function
   | Variable(_, _) as n ->
     Result.(let* lcom = generate_lval n in
             return @@ lcom @ [Machine "pop rax"; Machine "mov rax, [rax]"; Machine "push rax"])
+  | Return(_, node) ->
+    Result.(let* com = generate_node node in
+            return @@ com @ ret)
 
 let rec generate_nodes = function
   | [] -> Result.(return [])
@@ -81,6 +86,6 @@ let generate parsed =
            Machine "mov rbp, rsp";
            Machine (Printf.sprintf "sub rsp, %d" @@ local_assign_size local)]
           @ commands
-          @ [Machine "pop rax"; Machine "mov rsp, rbp"; Machine "pop rbp"; Machine "ret"]
+          @ ret
           |> string_of_commands
           |> return)

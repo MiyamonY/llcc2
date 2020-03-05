@@ -11,6 +11,7 @@ type t =
   | RParen of pos
   | Var of pos*string
   | Sep of pos
+  | Return of pos
 
 let atoi c = Char.code c - Char.code '0'
 
@@ -21,6 +22,7 @@ let to_string = function
   | RParen _ -> "RParen"
   | Var (_, name) -> Printf.sprintf "Variable(%s)" name
   | Sep _ -> "Sep"
+  | Return _ -> "Return"
 
 let at = function
   | Reserved (p, _) -> p
@@ -29,6 +31,7 @@ let at = function
   | RParen p  -> p
   | Var (p, _)-> p
   | Sep p -> p
+  | Return p -> p
 
 let next =
   State.(let+ i = get in
@@ -50,14 +53,14 @@ let rec int input n =
 let rec string input chars =
   State.(let+ i = get in
          if String.length input = i then
-           return Result.(return @@ String.of_list chars)
+           return Result.(return @@ String.of_list @@ List.rev chars)
          else
            let c = String.get input i in
            if Char.is_uppercase c || Char.is_lowercase c || Char.is_digit c then
              let+ () = next in
              string input @@ c::chars
            else
-             return Result.(return @@ String.of_list chars))
+             return Result.(return @@ String.of_list @@ List.rev chars))
 
 let tokenize input =
   let rec aux = lazy
@@ -110,7 +113,9 @@ let tokenize input =
                return Result.(
                    let* name = str in
                    let* us = ts in
-                   return @@ (Var (i, name) :: us))
+                   match name with
+                   | "return" -> return @@ Return i :: us
+                   | _ -> return @@ (Var (i, name) :: us))
              | _ -> return @@ Result.error @@ `TokenizerError (Some i, "unexpected token"))
   in
   State.evalState (Lazy.force aux) 0

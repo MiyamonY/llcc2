@@ -7,6 +7,7 @@ type node =
   | Number of pos * int
   | BinaryOp of pos * Operator.t * node * node
   | Variable of pos * string
+  | Return of pos * node
 
 type program = node list
 
@@ -21,6 +22,7 @@ let at = function
   | Number (p, _) -> p
   | BinaryOp (p, _, _, _) -> p
   | Variable (p, _) -> p
+  | Return (p, _) -> p
 
 let rec print_node = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -30,6 +32,8 @@ let rec print_node = function
     Printf.sprintf "BinaryOp(%s,%s,%s)\n" (Operator.to_string op) sl sr
   | Variable(_, name) ->
     Printf.sprintf "Variable(%s)" name
+  | Return(_, node) ->
+    Printf.sprintf "Return\t%s" @@ print_node node
 
 let peek =
   State.(let+ tokens = get in
@@ -229,21 +233,44 @@ and assign =
 and expr = lazy
   (Lazy.force assign)
 
-(* stmt = expr ";" *)
+(* stmt = expr ";" | "return" expr ";" *)
 and stmt  = lazy
-  State.(let+ st = Lazy.force expr in
-         let+ token = peek in
-         match token with
-         | None ->
-           return Result.(error @@ `ParserError (None, "token exhausted"))
-         | Some t ->
-           match t with
-           | Sep _ ->
-             let+ _ = next in
-             return @@ st
-           | _ ->
-             return Result.(error @@ `ParserError (Some (Tokenizer.at t),
-                                                   Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)))
+  State.(
+    let+ token = peek in
+    match token with
+    | None -> return Result.(error @@ `ParserError (None, "token exhausted"))
+    | Some t ->
+      match t with
+      | Return p ->
+        let+ _ = next in
+        let+ st = Lazy.force expr in
+        let+ token = peek in
+        begin match token with
+          | None ->
+            return Result.(error @@ `ParserError (None, "token exhausted"))
+          | Some t ->
+            match t with
+            | Sep _ ->
+              let+ _ = next in
+              return Result.(let* st = st in return @@ Return (p, st))
+            | _ ->
+              return Result.(error @@ `ParserError (Some (Tokenizer.at t),
+                                                    Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t))
+        end
+      | _ ->
+        let+ st = Lazy.force expr in
+        let+ token = peek in
+        match token with
+        | None ->
+          return Result.(error @@ `ParserError (None, "token exhausted"))
+        | Some t ->
+          match t with
+          | Sep _ ->
+            let+ _ = next in
+            return @@ st
+          | _ ->
+            return Result.(error @@ `ParserError (Some (Tokenizer.at t),
+                                                  Printf.sprintf "[%s]unexpected token: %s" __LOC__ @@ Tokenizer.to_string t)))
 
 (* program = stmt* *)
 and program = lazy
