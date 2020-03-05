@@ -35,6 +35,13 @@ let rec print_node = function
   | Return(_, node) ->
     Printf.sprintf "Return\t%s" @@ print_node node
 
+let token_exhausted loc =
+  Result.error @@ `ParserError (None, Printf.sprintf "[%s]token exhausted" loc)
+
+let unexpected_token loc token =
+  Result.error @@ `ParserError (Some (Tokenizer.at token),
+                                Printf.sprintf "[%s]unexpected token: %s" loc @@ Tokenizer.to_string token)
+
 let peek =
   State.(let+ tokens = get in
          match tokens with
@@ -44,15 +51,16 @@ let peek =
 let next =
   State.(let+ tokens = get in
          match tokens with
-         | [] -> return @@ Result.error @@ `ParserError (None, "token exhausted")
+         | [] -> return @@ token_exhausted __LOC__
          | _::rest ->
            let+ () = put rest in return Result.(return ()))
+
 
 (* primary = num | var | "(" expr ")" *)
 let rec primary = lazy
   State.(let+ t = peek in
          match t with
-         | None -> return @@ Result.error @@ `ParserError (None, "token exhausted")
+         | None -> return @@ token_exhausted __LOC__
          | Some token ->
            match token with
            | Num (i, n) ->
@@ -71,23 +79,19 @@ let rec primary = lazy
              let+ token = peek in
              begin
                match token with
-               | None -> return @@ Result.error @@ `ParserError (None, "token exhausted")
+               | None -> return @@ token_exhausted __LOC__
                | Some t ->
                  match t with
                  | RParen _ -> let+ _ = next in return e
-                 | _   -> return @@ Result.error @@
-                   `ParserError (Some (Tokenizer.at t),
-                                 Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)
+                 | _   -> return @@ unexpected_token __LOC__ t
              end
-           | _ -> return @@ Result.error @@
-             `ParserError (Some (Tokenizer.at token),
-                           Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string token))
+           | _ -> return @@ unexpected_token __LOC__ token)
 
 (* unary = ("+" | "-")? primary *)
 and unary = lazy
   State.(let+ t = peek in
          match t with
-         | None -> return @@ Result.error @@ `ParserError (None, "token exhausted")
+         | None -> return @@ token_exhausted __LOC__
          | Some token ->
            match token with
            | Reserved (i, op) ->
@@ -238,7 +242,7 @@ and stmt  = lazy
   State.(
     let+ token = peek in
     match token with
-    | None -> return Result.(error @@ `ParserError (None, "token exhausted"))
+    | None -> return @@ token_exhausted __LOC__
     | Some t ->
       match t with
       | Return p ->
@@ -247,30 +251,27 @@ and stmt  = lazy
         let+ token = peek in
         begin match token with
           | None ->
-            return Result.(error @@ `ParserError (None, "token exhausted"))
+            return @@ token_exhausted __LOC__
           | Some t ->
             match t with
             | Sep _ ->
               let+ _ = next in
               return Result.(let* st = st in return @@ Return (p, st))
             | _ ->
-              return Result.(error @@ `ParserError (Some (Tokenizer.at t),
-                                                    Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t))
+              return @@ unexpected_token __LOC__ t
         end
       | _ ->
         let+ st = Lazy.force expr in
         let+ token = peek in
         match token with
         | None ->
-          return Result.(error @@ `ParserError (None, "token exhausted"))
+          return @@ token_exhausted __LOC__
         | Some t ->
           match t with
           | Sep _ ->
             let+ _ = next in
             return @@ st
-          | _ ->
-            return Result.(error @@ `ParserError (Some (Tokenizer.at t),
-                                                  Printf.sprintf "[%s]unexpected token: %s" __LOC__ @@ Tokenizer.to_string t)))
+          | _ -> return @@unexpected_token __LOC__ t)
 
 (* program = stmt* *)
 and program = lazy
