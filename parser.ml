@@ -238,10 +238,13 @@ and program = lazy
          | None -> return Result.(return [])
          | Some _ ->
            let+ st = Lazy.force stmt in
-           let+ sts = Lazy.force program in
-           return Result.(let* s = st in
-                          let* ss = sts in
-                          return @@ s::ss))
+           match st with (* TODO: improve code *)
+           | Result.Ok _ ->
+             let+ sts = Lazy.force program in
+             return  Result.(let* s = st in
+                             let* ss = sts in
+                             return @@ s::ss)
+           | Result.Error _ ->  return Result.(let* s = st in return [s]))
 
 let parse =
   Lazy.force program
