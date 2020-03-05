@@ -76,7 +76,7 @@ let tokenize input =
                  | None ->
                    begin match op_of_char c with
                      | None ->
-                       return @@ Result.error @@ `TokenizerError (i, "unexpected token")
+                       return @@ Result.error @@ `TokenizerError (Some i, "unexpected token")
                      | Some op ->
                        let+ ts = Lazy.force aux in
                        return Result.(let* us = ts in
@@ -111,6 +111,6 @@ let tokenize input =
                    let* name = str in
                    let* us = ts in
                    return @@ (Var (i, name) :: us))
-             | _ -> return @@ Result.error @@ `TokenizerError (i, "unexpected token"))
+             | _ -> return @@ Result.error @@ `TokenizerError (Some i, "unexpected token"))
   in
   State.evalState (Lazy.force aux) 0

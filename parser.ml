@@ -40,7 +40,7 @@ let peek =
 let next =
   State.(let+ tokens = get in
          match tokens with
-         | [] -> return @@ Result.error @@ `ParserError (-1, "token exhausted")
+         | [] -> return @@ Result.error @@ `ParserError (None, "token exhausted")
          | _::rest ->
            let+ () = put rest in return Result.(return ()))
 
@@ -48,7 +48,7 @@ let next =
 let rec primary = lazy
   State.(let+ t = peek in
          match t with
-         | None -> return @@ Result.error @@ `ParserError (-1, "token exhausted")
+         | None -> return @@ Result.error @@ `ParserError (None, "token exhausted")
          | Some token ->
            match token with
            | Num (i, n) ->
@@ -67,21 +67,23 @@ let rec primary = lazy
              let+ token = peek in
              begin
                match token with
-               | None -> return @@ Result.error @@ `ParserError (-1, "token exhausted")
+               | None -> return @@ Result.error @@ `ParserError (None, "token exhausted")
                | Some t ->
                  match t with
                  | RParen _ -> let+ _ = next in return e
                  | _   -> return @@ Result.error @@
-                   `ParserError (Tokenizer.at t, Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)
+                   `ParserError (Some (Tokenizer.at t),
+                                 Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)
              end
            | _ -> return @@ Result.error @@
-             `ParserError (Tokenizer.at token, Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string token))
+             `ParserError (Some (Tokenizer.at token),
+                           Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string token))
 
 (* unary = ("+" | "-")? primary *)
 and unary = lazy
   State.(let+ t = peek in
          match t with
-         | None -> return @@ Result.error @@ `ParserError (-1, "token exhausted")
+         | None -> return @@ Result.error @@ `ParserError (None, "token exhausted")
          | Some token ->
            match token with
            | Reserved (i, op) ->
@@ -233,14 +235,15 @@ and stmt  = lazy
          let+ token = peek in
          match token with
          | None ->
-           return Result.(error @@ `ParserError (-1, "token exhausted"))
+           return Result.(error @@ `ParserError (None, "token exhausted"))
          | Some t ->
            match t with
            | Sep _ ->
              let+ _ = next in
              return @@ st
            | _ ->
-             return Result.(error @@ `ParserError (Tokenizer.at t, Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)))
+             return Result.(error @@ `ParserError (Some (Tokenizer.at t),
+                                                   Printf.sprintf "unexpected token: %s" @@ Tokenizer.to_string t)))
 
 (* program = stmt* *)
 and program = lazy

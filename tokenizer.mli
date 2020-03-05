@@ -8,7 +8,7 @@ type t =
   | Var of pos * string
   | Sep of pos
 
-val tokenize: string -> (t list, [> `TokenizerError of pos * string ]) BatResult.t
+val tokenize: string -> (t list, [> `TokenizerError of pos option * string ]) BatResult.t
 
 val at : t -> pos
 

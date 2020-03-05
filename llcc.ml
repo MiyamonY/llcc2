@@ -6,20 +6,21 @@ type pos = int
 
 let input = ref ""
 
-let sep i=
-  (if i = -1 then
-     String.length !input
-   else i) |> String.repeat " "
+let sep pos =
+  (match pos with
+   | None -> String.length !input
+   | Some i ->  i)
+  |> String.repeat " "
 
 let error_message  = function
   | `ArgumentError msg ->
     Printf.sprintf "Argument error: %s" msg
-  | `TokenizerError (i, msg) ->
-    Printf.sprintf "Tokenizer error:\n%s\n%s^ %s" !input (sep i) msg
-  | `ParserError (i, msg) ->
-    Printf.sprintf "Parser error:\n%s\n%s^ %s" !input (sep i) msg
-  | `GeneratorError (i, msg) ->
-    Printf.sprintf "Generator error:\n%s\n%s^ %s" !input (sep i) msg
+  | `TokenizerError (pos, msg) ->
+    Printf.sprintf "Tokenizer error:\n%s\n%s^ %s" !input (sep pos) msg
+  | `ParserError (pos, msg) ->
+    Printf.sprintf "Parser error:\n%s\n%s^ %s" !input (sep pos) msg
+  | `GeneratorError (pos, msg) ->
+    Printf.sprintf "Generator error:\n%s\n%s^ %s" !input (sep pos) msg
 
 let () =
   (if Array.length Sys.argv != 2 then

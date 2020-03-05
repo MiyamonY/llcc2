@@ -20,13 +20,13 @@ let generate_lval = function
   | Variable(i, name) ->
     begin match List.assoc_opt name !local with
       | None ->
-        Result.(error @@ `GeneratorError (i, Printf.sprintf "variable %s not found" name))
+        Result.(error @@ `GeneratorError (Some i, Printf.sprintf "variable %s not found" name))
       | Some n ->
         Result.(return [Machine "mov rax, rbp"; Machine (Printf.sprintf "sub rax, %d" @@ n);
                         Machine "push rax"])
     end
   | _ as n ->
-    Result.(error @@ `GeneratorError (at n, Printf.sprintf "%s is not left value" @@ print_node n))
+    Result.(error @@ `GeneratorError (Some (at n), Printf.sprintf "%s is not left value" @@ print_node n))
 
 let rec generate_node = function
   | Number (_, n) ->
@@ -56,7 +56,7 @@ let rec generate_node = function
                         Machine "setle al";
                         Machine "movzb rax, al";]
         | Assign -> return [Machine "mov [rax], rdi"; Machine "push rdi"]
-        | _ -> error @@ `GeneratorError (i, "invalid operator") in
+        | _ -> error @@ `GeneratorError (Some i, "invalid operator") in
       return @@ lcom @ rcom @ [Machine "pop rdi"; Machine "pop rax";] @ com @
                 if op = Assign then [] else [Machine "push rax"])
   | Variable(_, _) as n ->
