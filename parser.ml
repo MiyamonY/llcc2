@@ -6,14 +6,21 @@ module Result = Mresult
 type node =
   | Number of pos * int
   | BinaryOp of pos * Operator.t * node * node
-  | Variable of pos * char
+  | Variable of pos * string
 
 type program = node list
+
+let local = ref []
+
+let local_assign_size local = 8 * (List.length !local)
+
+let add_varaible local name =
+  local := (name, 8 * (List.length !local)) :: !local
 
 let at = function
   | Number (p, _) -> p
   | BinaryOp (p, _, _, _) -> p
-  | Variable (p, _)->p
+  | Variable (p, _) -> p
 
 let rec print_node = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -21,8 +28,8 @@ let rec print_node = function
     let sl = print_node l in
     let sr = print_node r in
     Printf.sprintf "BinaryOp(%s,%s,%s)\n" (Operator.to_string op) sl sr
-  | Variable(_, c) ->
-    Printf.sprintf "Variable(%c)" c
+  | Variable(_, name) ->
+    Printf.sprintf "Variable(%s)" name
 
 let peek =
   State.(let+ tokens = get in
@@ -47,9 +54,13 @@ let rec primary = lazy
            | Num (i, n) ->
              let+ _ = next in
              return Result.(return @@ Number (i, n))
-           | Var (i, c) ->
+           | Var (i, name) ->
              let+ _ = next in
-             return Result.(return @@ Variable(i, c))
+             begin match List.assoc_opt name !local with
+               | None -> add_varaible local name
+               | Some _ -> ()
+             end;
+             return Result.(return @@ Variable(i, name))
            | LParen _ ->
              let+ _ = next in
              let+ e = Lazy.force expr in
@@ -241,10 +252,11 @@ and program = lazy
            match st with (* TODO: improve code *)
            | Result.Ok _ ->
              let+ sts = Lazy.force program in
-             return  Result.(let* s = st in
-                             let* ss = sts in
-                             return @@ s::ss)
-           | Result.Error _ ->  return Result.(let* s = st in return [s]))
+             return Result.(let* s = st in
+                            let* ss = sts in
+                            return @@ s::ss)
+           | Result.Error _ ->
+             return Result.(let* s = st in return [s]))
 
 let parse =
   Lazy.force program

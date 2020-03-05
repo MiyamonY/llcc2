@@ -9,7 +9,7 @@ type t =
   | Num of pos * int
   | LParen of pos
   | RParen of pos
-  | Var of pos*char
+  | Var of pos*string
   | Sep of pos
 
 let atoi c = Char.code c - Char.code '0'
@@ -19,7 +19,7 @@ let to_string = function
   | Num (_, n) -> Printf.sprintf "Num(%d)" n
   | LParen _ -> "LParen"
   | RParen _ -> "RParen"
-  | Var (_, c) -> Printf.sprintf "Variable(%c)" c
+  | Var (_, name) -> Printf.sprintf "Variable(%s)" name
   | Sep _ -> "Sep"
 
 let at = function
@@ -47,6 +47,18 @@ let rec int input n =
              int input @@ 10 * n + atoi c
            | _ -> return Result.(return @@ Num (i, n)))
 
+let rec string input chars =
+  State.(let+ i = get in
+         if String.length input = i then
+           return Result.(return @@ String.of_list chars)
+         else
+           let c = String.get input i in
+           if Char.is_uppercase c || Char.is_lowercase c || Char.is_digit c then
+             let+ () = next in
+             string input @@ c::chars
+           else
+             return Result.(return @@ String.of_list chars))
+
 let tokenize input =
   let rec aux = lazy
     State.(let+ i = get in
@@ -56,10 +68,6 @@ let tokenize input =
              let c = String.get input i in
              let+ () = next in
              match c with
-             | '0' .. '9' ->
-               let+ n = int input @@ atoi c in
-               let+ ts = Lazy.force aux in
-               return Result.(let* m = n in let* us = ts in return (m::us))
              | ' ' | '\t'  ->  Lazy.force aux
              | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' ->
                let+ i = get in
@@ -92,9 +100,17 @@ let tokenize input =
                let+ ts = Lazy.force aux in
                return Result.(let* us = ts in
                               return @@ (Sep i :: us))
-             | 'a' .. 'z' ->
+             | _ when Char.is_digit c ->
+               let+ n = int input @@ atoi c in
                let+ ts = Lazy.force aux in
-               return Result.(let* us = ts in
-                              return @@ (Var (i, c)::us))
-             | _ -> return @@ Result.error @@ `TokenizerError (i, "unexpected token")) in
+               return Result.(let* m = n in let* us = ts in return (m::us))
+             | _ when Char.is_lowercase c || Char.is_uppercase c ->
+               let+ str = string input [c] in
+               let+ ts = Lazy.force aux in
+               return Result.(
+                   let* name = str in
+                   let* us = ts in
+                   return @@ (Var (i, name) :: us))
+             | _ -> return @@ Result.error @@ `TokenizerError (i, "unexpected token"))
+  in
   State.evalState (Lazy.force aux) 0

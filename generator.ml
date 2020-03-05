@@ -17,8 +17,14 @@ let offset c =
   8*(Char.code c - Char.code 'a')
 
 let generate_lval = function
-  | Variable(_, c) ->
-    Result.(return [Machine "mov rax, rbp"; Machine (Printf.sprintf "sub rax, %d" @@ offset c); Machine "push rax"])
+  | Variable(i, name) ->
+    begin match List.assoc_opt name !local with
+      | None ->
+        Result.(error @@ `GeneratorError (i, Printf.sprintf "variable %s not found" name))
+      | Some n ->
+        Result.(return [Machine "mov rax, rbp"; Machine (Printf.sprintf "sub rax, %d" @@ n);
+                        Machine "push rax"])
+    end
   | _ as n ->
     Result.(error @@ `GeneratorError (at n, Printf.sprintf "%s is not left value" @@ print_node n))
 
@@ -73,7 +79,7 @@ let generate parsed =
            Assembler ".global main"; Label "main";
            Machine "push rbp";
            Machine "mov rbp, rsp";
-           Machine "sub rsp, 208"]
+           Machine (Printf.sprintf "sub rsp, %d" @@ local_assign_size local)]
           @ commands
           @ [Machine "pop rax"; Machine "mov rsp, rbp"; Machine "pop rbp"; Machine "ret"]
           |> string_of_commands
