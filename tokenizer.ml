@@ -12,6 +12,8 @@ type t =
   | Var of pos*string
   | Sep of pos
   | Return of pos
+  | If of pos
+  | Else of pos
 
 let atoi c = Char.code c - Char.code '0'
 
@@ -23,6 +25,8 @@ let to_string = function
   | Var (_, name) -> Printf.sprintf "Variable(%s)" name
   | Sep _ -> "Sep"
   | Return _ -> "Return"
+  | If _ -> "If"
+  | Else _ -> "Else"
 
 let at = function
   | Reserved (p, _) -> p
@@ -32,6 +36,8 @@ let at = function
   | Var (p, _)-> p
   | Sep p -> p
   | Return p -> p
+  | If p -> p
+  | Else p -> p
 
 let next =
   State.(let+ i = get in
@@ -115,6 +121,8 @@ let tokenize input =
                    let* us = ts in
                    match name with
                    | "return" -> return @@ Return i :: us
+                   | "if" -> return @@ If i :: us
+                   | "else" -> return @@ Else i :: us
                    | _ -> return @@ (Var (i, name) :: us))
              | _ -> return @@ Result.error @@ `TokenizerError (Some i, "unexpected token"))
   in

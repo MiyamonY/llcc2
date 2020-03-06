@@ -6,6 +6,15 @@ type command =
   | Label of string
   | Machine of string
 
+module Label = struct
+  let num = ref 0
+
+  let create ()=
+    let label = Printf.sprintf "Label%d" !num in
+    num := !num+1;
+    label
+end
+
 let to_string = function
   | Assembler com -> com
   | Label com -> Printf.sprintf "%s:" com
@@ -67,6 +76,23 @@ let rec generate_node = function
   | Return(_, node) ->
     Result.(let* com = generate_node node in
             return @@ com @ ret)
+  | If(_, cond, then_, else_) ->
+    Result.(let* cond = generate_node cond in
+            let* then_ = generate_node then_ in
+            let* else_ =
+              match else_ with
+              | None -> return []
+              | Some node -> generate_node node in
+            let lelse = Label.create () in
+            let lend = Label.create () in
+            return @@ cond
+                      @ [Machine "pop rax"; Machine "cmp rax, 0"; Machine (Printf.sprintf "je %s" lelse)]
+                      @ then_
+                      @ [Machine (Printf.sprintf "jmp %s" lend)]
+                      @ [Label lelse]
+                      @ else_
+                      @ [Label lend])
+
 
 let rec generate_nodes = function
   | [] -> Result.(return [])
