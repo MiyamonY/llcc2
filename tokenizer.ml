@@ -14,6 +14,7 @@ type t =
   | Return of pos
   | If of pos
   | Else of pos
+  | While of pos
 
 let atoi c = Char.code c - Char.code '0'
 
@@ -27,6 +28,7 @@ let to_string = function
   | Return _ -> "Return"
   | If _ -> "If"
   | Else _ -> "Else"
+  | While _ -> "While"
 
 let at = function
   | Reserved (p, _) -> p
@@ -38,6 +40,7 @@ let at = function
   | Return p -> p
   | If p -> p
   | Else p -> p
+  | While p -> p
 
 let next =
   State.(let+ i = get in
@@ -123,6 +126,7 @@ let tokenize input =
                    | "return" -> return @@ Return i :: us
                    | "if" -> return @@ If i :: us
                    | "else" -> return @@ Else i :: us
+                   | "while" -> return @@ While i :: us
                    | _ -> return @@ (Var (i, name) :: us))
              | _ -> return @@ Result.error @@ `TokenizerError (Some i, "unexpected token"))
   in

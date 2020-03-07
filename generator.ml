@@ -92,7 +92,16 @@ let rec generate_node = function
                       @ [Label lelse]
                       @ else_
                       @ [Label lend])
-
+  | While(_, cond, body) ->
+    Result.(let* cond = generate_node cond in
+            let* body = generate_node body in
+            let lbegin = Label.create () in
+            let lend = Label.create () in
+            return @@ [Label lbegin] @
+                      cond @ [Machine "pop rax"; Machine "cmp rax, 0"; Machine (Printf.sprintf "je %s" lend);]
+                      @ body
+                      @ [Machine (Printf.sprintf "jmp %s" lbegin)]
+                      @ [Label lend])
 
 let rec generate_nodes = function
   | [] -> Result.(return [])

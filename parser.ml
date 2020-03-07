@@ -9,6 +9,7 @@ type node =
   | Variable of pos * string
   | Return of pos * node
   | If of pos * node * node * node option
+  | While of pos * node * node
 
 type program = node list
 
@@ -28,7 +29,8 @@ let at = function
   | BinaryOp (p, _, _, _) -> p
   | Variable (p, _) -> p
   | Return (p, _) -> p
-  | If (p,_,_,_) -> p
+  | If (p, _, _, _) -> p
+  | While (p, _, _) -> p
 
 let rec print_node = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -45,6 +47,8 @@ let rec print_node = function
       | None -> ""
       | Some node -> print_node node in
     Printf.sprintf "If(%s) %s %s" (print_node cond) (print_node then_) el
+  | While(_, cond, body) ->
+    Printf.sprintf "While(%s) %s" (print_node cond) @@ print_node body
 
 let token_exhausted loc =
   Result.error @@ `ParserError (None, Printf.sprintf "[%s]token exhausted" loc)
@@ -328,6 +332,30 @@ and stmt  = lazy
             | None -> return @@ token_exhausted __LOC__
             | Some token -> return @@ unexpected_token __LOC__ token
           end
+      | While p ->
+        let+ _ = next in
+        let+ t = must_be (LParen 0) in
+        if t then
+          let+ _ = next in
+          let+ cond = Lazy.force expr in
+          let+ t = must_be (RParen 0) in
+          if t then
+            let+ _ = next in
+            let+ body = Lazy.force stmt in
+            return Result.(let* cond = cond in
+                           let* body = body in
+                           return @@ While (p, cond, body))
+          else
+            let+ next = peek in
+            match next with
+            | None -> return @@ token_exhausted __LOC__
+            | Some token -> return @@ unexpected_token __LOC__ token
+        else
+          let+ next = peek in
+          begin match next with
+            | None -> return @@ token_exhausted __LOC__
+            | Some token -> return @@ unexpected_token __LOC__ token
+          end
       |_ ->
         let+ st = Lazy.force expr in
         let+ token = peek in
@@ -339,7 +367,7 @@ and stmt  = lazy
           | Sep _ ->
             let+ _ = next in
             return @@ st
-          | _ -> return @@unexpected_token __LOC__ t)
+          | _ -> return @@ unexpected_token __LOC__ t)
 
 (* program = stmt* *)
 and program = lazy

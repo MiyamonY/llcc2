@@ -10,6 +10,7 @@ type t =
   | Return of pos
   | If of pos
   | Else of pos
+  | While of pos
 
 val tokenize: string -> (t list, [> `TokenizerError of pos option * string ]) BatResult.t
 
