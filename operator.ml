@@ -1,3 +1,5 @@
+open Batteries
+
 type t =
   | Plus
   | Minus
@@ -24,7 +26,8 @@ let to_string = function
   | Ge -> ">="
   | Assign -> "="
 
-let op_of_string = function
+let of_string c =
+  match String.of_char c with
   | "+"-> Some Plus
   | "-" -> Some Minus
   | "*" -> Some Mul
@@ -35,14 +38,4 @@ let op_of_string = function
   | "!=" -> Some Neq
   | ">" -> Some Gt
   | ">=" -> Some Ge
-  | _ -> None
-
-let op_of_char = function
-  | '+'-> Some Plus
-  | '-'-> Some Minus
-  | '*' -> Some Mul
-  | '/' -> Some Div
-  | '<' -> Some Lt
-  | '>' -> Some Gt
-  | '=' -> Some Assign
   | _ -> None

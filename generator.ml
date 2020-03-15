@@ -1,6 +1,8 @@
 open Batteries
 open Parser
 
+module Result = Mresult
+
 type command =
   | Assembler of string
   | Label of string
@@ -35,7 +37,7 @@ let generate_lval = function
                         Machine "push rax"])
     end
   | _ as n ->
-    Result.(error @@ `GeneratorError (Some (at n), Printf.sprintf "%s is not left value" @@ print_node n))
+    Result.(error @@ `GeneratorError (Some (at n), Printf.sprintf "%s is not left value" @@ Parser.to_string n))
 
 let ret = [Machine "pop rax"; Machine "mov rsp, rbp"; Machine "pop rbp"; Machine "ret"]
 

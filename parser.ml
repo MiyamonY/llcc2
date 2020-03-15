@@ -1,17 +1,6 @@
 open Batteries
-open Tokenizer
-
-module Result = Mresult
-
-type node =
-  | Number of pos * int
-  | BinaryOp of pos * Operator.t * node * node
-  | Variable of pos * string
-  | Return of pos * node
-  | If of pos * node * node * node option
-  | While of pos * node * node
-
-type program = node list
+open ParserCo
+open ParserCo.Infix
 
 module Local = struct
   let local = ref []
@@ -24,6 +13,16 @@ module Local = struct
     local := (name, 8 * (List.length !local)) :: !local
 end
 
+type pos = CharParser.position state
+
+type node =
+  | Number of pos * int
+  | BinaryOp of pos * Operator.t * node * node
+  | Variable of pos * string
+  | Return of pos * node
+  | If of pos * node * node * node option
+  | While of pos * node * node
+
 let at = function
   | Number (p, _) -> p
   | BinaryOp (p, _, _, _) -> p
@@ -32,358 +31,251 @@ let at = function
   | If (p, _, _, _) -> p
   | While (p, _, _) -> p
 
-let rec print_node = function
+let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
   | BinaryOp(_, op, l, r) ->
-    let sl = print_node l in
-    let sr = print_node r in
+    let sl = to_string l in
+    let sr = to_string r in
     Printf.sprintf "BinaryOp(%s,%s,%s)\n" (Operator.to_string op) sl sr
   | Variable(_, name) ->
     Printf.sprintf "Variable(%s)" name
   | Return(_, node) ->
-    Printf.sprintf "Return\t%s" @@ print_node node
+    Printf.sprintf "Return\t%s" @@ to_string node
   | If(_, cond, then_, else_) ->
     let el = match else_ with
       | None -> ""
-      | Some node -> print_node node in
-    Printf.sprintf "If(%s) %s %s" (print_node cond) (print_node then_) el
+      | Some node -> to_string node in
+    Printf.sprintf "If(%s) %s %s" (to_string cond) (to_string then_) el
   | While(_, cond, body) ->
-    Printf.sprintf "While(%s) %s" (print_node cond) @@ print_node body
+    Printf.sprintf "While(%s) %s" (to_string cond) @@ to_string body
 
-let token_exhausted loc =
-  Result.error @@ `ParserError (None, Printf.sprintf "[%s]token exhausted" loc)
+let (let>) = (>>=)
 
-let unexpected_token loc token =
-  Result.error @@ `ParserError (Some (Tokenizer.at token),
-                                Printf.sprintf "[%s]unexpected token: %s" loc @@ Tokenizer.to_string token)
+let alpha =
+  let> b = one_plus @@ satisfy (fun c -> Char.is_uppercase c || Char.is_lowercase c) in
+  return @@ String.of_list b
 
-let peek =
-  State.(let+ tokens = get in
-         match tokens with
-         | [] -> return None
-         | t:: _ -> return @@ Some t)
+let digit =
+  let> b = one_plus @@ satisfy Char.is_digit in
+  return @@ String.of_list b
 
-let next =
-  State.(let+ tokens = get in
-         match tokens with
-         | [] -> return @@ token_exhausted __LOC__
-         | _::rest ->
-           let+ () = put rest in return Result.(return ()))
+let alnum = digit <|> alpha
 
-let must_be t =
-  State.(let+ s = peek in
-         match s with
-         | None -> return false
-         | Some s ->
-           begin match t, s with
-             | Num _ , Num _ -> return true
-             | Reserved _, Reserved _ -> return true
-             | LParen _, LParen _ -> return true
-             | RParen _, RParen _ -> return true
-             | Var _, Var _ -> return true
-             | Sep _ , Sep _ -> return true
-             | Return _ , Return _ -> return true
-             | If _, If _ -> return true
-             | Else _, Else _ -> return true
-             | _, _ -> return false
-           end)
+let spaces =
+  let space = exactly ' ' in
+  ignore_zero_plus space
 
-(* primary = num | var | "(" expr ")" *)
+let ignore_spaces_after m =
+  let> node = m in
+  let> () = spaces in return node
+
+let ignore_spaces_before m =
+  let> () = spaces in
+  let> node = m in
+  return node
+
+let ignore_spaces m =
+  let> () = spaces in
+  ignore_spaces_after m
+
+let unary_op =
+  let open Operator in
+  let plus = exactly '+' >>> return Plus in
+  let minus = exactly '-' >>> return Minus in
+  plus <|> minus
+
+let mul_op =
+  let open Operator in
+  let mul = exactly '*' >>> return Mul in
+  let div = exactly '/' >>> return Div in
+  mul <|> div
+
+let add_op =
+  let open Operator in
+  let add = exactly '+' >>> return Plus in
+  let sub = exactly '-' >>> return Minus in
+  add <|> sub
+
+let relational_op =
+  let open Operator in
+  let lt = exactly '<' >>> return Lt in
+  let le = exactly '<' >>> exactly '=' >>> return Le in
+  let gt = exactly '>' >>> return Gt in
+  let ge = exactly '>' >>> exactly '=' >>> return Ge in
+  either [le; lt; ge; gt]
+
+let equality_op =
+  let open Operator in
+  let eq = exactly '=' >>> exactly '=' >>> return Eq in
+  let neq = exactly '!' >>> exactly '=' >>> return Neq in
+  eq <|> neq
+
+let variables =
+  let> s = state in
+  let> name = alpha <|> digit in
+  begin match Local.find name with
+    | None -> Local.add_varaible name
+    | Some _ -> ()
+  end;
+  let keywords = ["if"; "return"; "while"; "else"] in
+  if List.exists ((=) name) keywords then fail
+  else return @@ Variable (s, name)
+
+let number =
+  let> s = state in
+  let> b = one_plus @@ satisfy Char.is_digit in
+  return @@ Number (s, String.to_int @@ String.of_list b)
+
+let keyword k =
+  String.enum k
+  |> Enum.map (fun c -> exactly c)
+  |> Enum.fold (fun a b -> a >>> b) (return 'x')
+
+let lparen = exactly '('
+let rparen = exactly ')'
+let seperator = exactly ';'
+
+(* primary = number | varriable | "(" expr ")" *)
 let rec primary = lazy
-  State.(let+ t = peek in
-         match t with
-         | None -> return @@ token_exhausted __LOC__
-         | Some token ->
-           match token with
-           | Num (i, n) ->
-             let+ _ = next in
-             return Result.(return @@ Number (i, n))
-           | Var (i, name) ->
-             let+ _ = next in
-             begin match Local.find name with
-               | None -> Local.add_varaible name
-               | Some _ -> ()
-             end;
-             return Result.(return @@ Variable(i, name))
-           | LParen _ ->
-             let+ _ = next in
-             let+ e = Lazy.force expr in
-             let+ token = peek in
-             begin
-               match token with
-               | None -> return @@ token_exhausted __LOC__
-               | Some t ->
-                 match t with
-                 | RParen _ -> let+ _ = next in return e
-                 | _   -> return @@ unexpected_token __LOC__ t
-             end
-           | _ -> return @@ unexpected_token __LOC__ token)
+  (let parens =
+     let> _ = lparen in
+     let> u = ignore_spaces @@ must @@ Lazy.force expr in
+     let> _ = must rparen in return u
+   in
+   label "primary" @@ either [number; variables; parens])
 
 (* unary = ("+" | "-")? primary *)
 and unary = lazy
-  State.(let+ t = peek in
-         match t with
-         | None -> return @@ token_exhausted __LOC__
-         | Some token ->
-           match token with
-           | Reserved (i, op) ->
-             begin match op with
-               | Plus ->
-                 let+ _ = next in
-                 Lazy.force primary
-               | Minus ->
-                 let+ _ = next in
-                 let+ node = Lazy.force primary in
-                 return Result.(
-                     let* n = node in
-                     return @@ BinaryOp(i, Minus, Number (i, 0), n))
-               | _ -> Lazy.force primary
-             end
-           | _ -> Lazy.force primary)
+  (let> s = state in
+   let> sign = ignore_spaces @@ maybe unary_op in
+   let> p = Lazy.force primary in
+   match sign with
+   | None -> return p
+   | Some op ->
+     match op with
+     | Plus -> return p
+     | Minus -> return @@ BinaryOp(s, Minus, Number(s, 0), p)
+     | _ -> fail)
 
 (* mul = unary ("*" unary | "/" unary)* *)
-and mul =
-  let rec star left =
-    State.(let+ token = peek in
-           match token with
-           | None -> return left
-           | Some t ->
-             match t with
-             | Reserved (i, op) ->
-               begin match op with
-                 | Mul | Div ->
-                   let+ _ = next in
-                   let+ right = Lazy.force unary in
-                   let n = Result.(let* lnode = left in
-                                   let* rnode = right in
-                                   return @@ BinaryOp (i, op, lnode, rnode)) in
-                   star n
-                 | _ -> return left
-               end
-             | _ -> return left) in
-  lazy State.(let+ left =  Lazy.force unary in
-              star left)
+and mul = lazy
+  (label "mul" @@
+   let rec aux left =
+     let> s = state in
+     let> op = ignore_spaces @@ maybe mul_op in
+     match op with
+     | None -> return left
+     | Some op ->
+       let> right = must @@ Lazy.force unary in
+       aux @@ BinaryOp (s, op, left, right) in
+   let> u = Lazy.force unary in
+   aux u)
 
 (* add  = mul ("+" mul | "-" mul)* *)
-and add =
-  let rec star left =
-    State.(let+ token = peek in
-           match token with
-           | None -> return left
-           | Some t ->
-             match t with
-             | Reserved (i, op) ->
-               begin match op with
-                 | Plus | Minus ->
-                   let+ _ = next in
-                   let+ right = Lazy.force mul in
-                   let n = Result.(let* lnode = left in
-                                   let* rnode = right in
-                                   return @@ BinaryOp (i, op, lnode, rnode)) in
-                   star n
-                 | _ -> return left
-               end
-             | _ -> return left) in
-  lazy State.(let+ left = Lazy.force mul in
-              star left)
+and add = lazy
+  (label "add" @@
+   let rec aux left =
+     let> s = state in
+     let> op = ignore_spaces @@ maybe add_op in
+     match op with
+     | None -> return left
+     | Some op ->
+       let> right = must @@ Lazy.force mul in
+       aux @@ BinaryOp (s, op, left, right) in
+   let> u = Lazy.force mul in
+   aux u)
 
 (* relational = add ("<" add | "<=" add | ">" add | ">=" add) * *)
-and relational =
-  let rec star left =
-    State.(let+ token = peek in
-           match token with
-           | None -> return left
-           | Some t ->
-             match t with
-             | Reserved (i, op) ->
-               begin match op with
-                 | Lt | Le | Gt | Ge ->
-                   let+ _ = next in
-                   let+ right = Lazy.force add in
-                   let n = Result.(let* lnode = left in
-                                   let* rnode = right in
-                                   return (
-                                     if op = Gt then
-                                       BinaryOp (i, Lt, rnode, lnode)
-                                     else if op = Ge then
-                                       BinaryOp (i, Le, rnode, lnode)
-                                     else
-                                       BinaryOp (i, op, lnode, rnode))) in
-                   star n
-                 | _ -> return left
-               end
-             | _ -> return left) in
-
-  lazy State.(let+ left = Lazy.force add in
-              star left)
+and relational = lazy
+  (label "relational" @@
+   let rec aux left =
+     let> s = state in
+     let> op = ignore_spaces @@ maybe relational_op in
+     match op with
+     | None -> return left
+     | Some op ->
+       let> right = Lazy.force add in
+       aux (match op with
+           | Gt -> BinaryOp (s, Lt, right, left)
+           | Ge -> BinaryOp (s, Le, right, left)
+           | _ -> BinaryOp (s, op, left, right)) in
+   let> u = Lazy.force add in
+   aux u)
 
 (* equality = relational ("==" relational | "!=" relational) * *)
-and equality =
-  let rec star left =
-    State.(let+ token = peek in
-           match token with
-           | None -> return left
-           | Some t ->
-             match t with
-             | Reserved (i, op) ->
-               begin match op with
-                 | Eq | Neq ->
-                   let+ _ = next in
-                   let+ right = Lazy.force relational in
-                   let n = Result.(let* lnode = left in
-                                   let* rnode = right in
-                                   return @@ BinaryOp (i, op, lnode, rnode)) in
-                   star n
-                 | _ ->
-                   return left
-               end
-             | _ -> return left) in
-  lazy State.(let+ left = Lazy.force relational in
-              star left)
+and equality = lazy
+  (label "equality" @@
+   let aux left =
+     let> s = state in
+     let> op = ignore_spaces @@ maybe equality_op in
+     match op with
+     | None -> return left
+     | Some op ->
+       let> right = must @@ Lazy.force relational in
+       return @@ BinaryOp (s, op, left, right) in
+   let> u = Lazy.force relational in
+   aux u)
 
 (* assign = equality ("=" assign)? *)
-and assign =
-  let rec star left =
-    State.(let+ token = peek in
-           match token with
-           | None -> return left
-           | Some t ->
-             match t with
-             | Reserved (i, op) ->
-               begin match op with
-                 | Assign ->
-                   let+ _ = next in
-                   let+ right = Lazy.force assign in
-                   let n = Result.(let* lnode = left in
-                                   let* rnode = right in
-                                   return @@ BinaryOp (i, op, lnode, rnode)) in
-                   star n
-                 | _ -> return left
-               end
-             | _ -> return left
-          ) in
-  lazy State.(let+ left = Lazy.force equality in
-              star left)
+and assign = lazy
+  (label "assign" @@
+   let aux left =
+     let> s = state in
+     let> op = ignore_spaces @@ maybe @@ exactly '=' in
+     match op with
+     | None -> return left
+     | Some _ ->
+       let> right = must @@ Lazy.force assign in
+       return @@ BinaryOp (s, Assign, left, right) in
+   let> u = Lazy.force equality in
+   aux u)
 
-(*  expr = equality *)
+(* expr = equality *)
 and expr = lazy
-  (Lazy.force assign)
+  (label "expr" @@
+   Lazy.force assign)
 
 (* stmt = expr ";"
         | "return" expr ";"
-        | "if" "(" expr ")" stmt *)
-and stmt  = lazy
-  State.(
-    let+ token = peek in
-    match token with
-    | None -> return @@ token_exhausted __LOC__
-    | Some t ->
-      match t with
-      | Return p ->
-        let+ _ = next in
-        let+ st = Lazy.force expr in
-        let+ token = peek in
-        begin match token with
-          | None ->
-            return @@ token_exhausted __LOC__
-          | Some t ->
-            match t with
-            | Sep _ ->
-              let+ _ = next in
-              return Result.(let* st = st in return @@ Return (p, st))
-            | _ -> return @@ unexpected_token __LOC__ t
-        end
-      | If p ->
-        let+ _ = next in
-        let+ t = must_be (LParen 0) in
-        if t then
-          let+ _ = next in
-          let+ cond = Lazy.force expr in
-          let+ t = must_be (RParen 0) in
-          if t then
-            let+ _ = next in
-            let+ then_ = Lazy.force stmt in
-            let+ token = peek in
-            match token with
-            | None -> return Result.(let* cond = cond in
-                                     let* then_ = then_ in
-                                     return @@ (If (p, cond, then_, None)))
-            | Some token ->
-              match token with
-              | Else _ ->
-                let+ _ = next in
-                let+ else_ = Lazy.force stmt in
-                return Result.(let* cond = cond in
-                               let* then_ = then_ in
-                               let* else_ = else_ in
-                               return @@ (If (p, cond, then_, Some else_)))
-              | _ ->
-                return Result.(let* cond = cond in
-                               let* then_ = then_ in
-                               return @@ (If (p, cond, then_, None)))
-          else
-            let+ next = peek in
-            match next with
-            | None -> return @@ token_exhausted __LOC__
-            | Some token -> return @@ unexpected_token __LOC__ token
-        else
-          let+ next = peek in
-          begin match next with
-            | None -> return @@ token_exhausted __LOC__
-            | Some token -> return @@ unexpected_token __LOC__ token
-          end
-      | While p ->
-        let+ _ = next in
-        let+ t = must_be (LParen 0) in
-        if t then
-          let+ _ = next in
-          let+ cond = Lazy.force expr in
-          let+ t = must_be (RParen 0) in
-          if t then
-            let+ _ = next in
-            let+ body = Lazy.force stmt in
-            return Result.(let* cond = cond in
-                           let* body = body in
-                           return @@ While (p, cond, body))
-          else
-            let+ next = peek in
-            match next with
-            | None -> return @@ token_exhausted __LOC__
-            | Some token -> return @@ unexpected_token __LOC__ token
-        else
-          let+ next = peek in
-          begin match next with
-            | None -> return @@ token_exhausted __LOC__
-            | Some token -> return @@ unexpected_token __LOC__ token
-          end
-      |_ ->
-        let+ st = Lazy.force expr in
-        let+ token = peek in
-        match token with
-        | None ->
-          return @@ token_exhausted __LOC__
-        | Some t ->
-          match t with
-          | Sep _ ->
-            let+ _ = next in
-            return @@ st
-          | _ -> return @@ unexpected_token __LOC__ t)
+        | "if" "(" expr ")" stmt ("else" stmt)?
+        | "while" "(" expr ")" stmt *)
+and stmt = lazy
+  (let> s = state in
+   let sexpr =
+     let> node = ignore_spaces_before @@ Lazy.force expr in
+     must @@ ignore_spaces_before seperator >>> return node in
+   let sreturn =
+     ignore_spaces @@ keyword "return" >>>
+     let> node = must @@ ignore_spaces @@ Lazy.force expr in
+     must @@ ignore_spaces_before seperator >>> return @@ Return (s, node) in
+   let sif =
+     ignore_spaces_before @@ keyword "if" >>>
+     must @@ ignore_spaces lparen >>>
+     let> cond = must @@ Lazy.force expr in
+     must @@ ignore_spaces rparen >>>
+     let> then_ = must @@ Lazy.force stmt in
+     let> else_clause = maybe @@ ignore_spaces @@ keyword "else" in
+     match else_clause with
+     | None -> return @@ If(s, cond, then_, None)
+     | Some _ ->
+       let> else_ = must @@ Lazy.force stmt in
+       return @@ If(s, cond, then_, Some else_) in
+   let swhile =
+     ignore_spaces_before @@ keyword "while" >>>
+     must @@ ignore_spaces lparen >>>
+     let> cond = must @@ Lazy.force expr in
+     must @@ ignore_spaces rparen >>>
+     let> body = must @@ Lazy.force stmt in
+     return @@ While(s, cond, body)
+   in
+   either [sreturn; sif; swhile; sexpr;])
 
-(* program = stmt* *)
+(* program = stmt *)
 and program = lazy
-  State.(let+ token = peek in
-         match token with
-         | None -> return Result.(return [])
-         | Some _ ->
-           let+ st = Lazy.force stmt in
-           match st with (* TODO: improve code *)
-           | Result.Ok _ ->
-             let+ sts = Lazy.force program in
-             return Result.(let* s = st in
-                            let* ss = sts in
-                            return @@ s::ss)
-           | Result.Error _ ->
-             return Result.(let* s = st in return [s]))
+  (let> node = one_plus @@ Lazy.force stmt in
+   let> () = eof in
+   return node)
 
-let parse =
-  Lazy.force program
+let parse ?(debug=false) input =
+  debug_mode := debug;
+  run (Lazy.force program) (CharParser.source_of_string input)
