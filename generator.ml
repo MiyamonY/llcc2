@@ -133,38 +133,43 @@ let rec generate_node = function
                        Label lend]
     end
   | For(_, init, cond, next, body) ->
-    let lrep = Label.create ~label:"ForRep" () in
-    let lend = Label.create ~label:"ForEnd" () in
-    let@ result = match init with
-      | None -> Writer.tell []
-      | Some node -> generate_node node in
-    match result with
-    | Error _ as err -> Writer.return err
-    | Ok _ ->
-      Writer.tell [Label lrep] >>>
-      let@ result = generate_node body in
+    begin
+      let lrep = Label.create ~label:"ForRep" () in
+      let lend = Label.create ~label:"ForEnd" () in
+      let@ result = match init with
+        | None -> Writer.tell []
+        | Some node -> generate_node node in
       match result with
       | Error _ as err -> Writer.return err
-      | Ok () ->
-        let@ result = match cond with
-          | None -> Writer.tell []
-          | Some node -> generate_node node in
+      | Ok _ ->
+        Writer.tell [Label lrep] >>>
+        let@ result = generate_node body in
         match result with
         | Error _ as err -> Writer.return err
-        | Ok _ ->
-          Writer.tell [Machine "pop rax"; Machine "cmp rax, 0"; Machine (Printf.sprintf "je %s" lend);] >>>
-          match next with
-          | None -> Writer.tell
-                      [Machine (Printf.sprintf "jmp %s" lrep);
-                       Label lend]
-          | Some node ->
-            let@ result = generate_node node in
-            match result with
-            | Error _ as err -> Writer.return err
-            | Ok _ ->
-              Writer.tell [Machine (Printf.sprintf "jmp %s" lrep);
-                           Label lend]
-
+        | Ok () ->
+          let@ result = match cond with
+            | None -> Writer.tell []
+            | Some node -> generate_node node in
+          match result with
+          | Error _ as err -> Writer.return err
+          | Ok _ ->
+            Writer.tell [Machine "pop rax"; Machine "cmp rax, 0"; Machine (Printf.sprintf "je %s" lend);] >>>
+            match next with
+            | None -> Writer.tell
+                        [Machine (Printf.sprintf "jmp %s" lrep);
+                         Label lend]
+            | Some node ->
+              let@ result = generate_node node in
+              match result with
+              | Error _ as err -> Writer.return err
+              | Ok _ ->
+                Writer.tell [Machine (Printf.sprintf "jmp %s" lrep);
+                             Label lend]
+    end
+  | Block(_, nodes) ->
+    List.fold_left
+      (fun pred node -> pred >>> generate_node node >>> Writer.tell [Machine "pop rax"])
+      (Writer.return (Ok ())) nodes
 
 let generate_nodes nodes =
   List.fold_left (fun pred node -> pred  >>> generate_node node) (Writer.return @@ (Ok ())) nodes

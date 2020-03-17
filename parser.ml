@@ -23,6 +23,7 @@ type node =
   | If of pos * node * node * node option
   | While of pos * node * node
   | For of pos * node option * node option * node option * node
+  | Block of pos * node list
 
 let at = function
   | Number (p, _) -> p
@@ -32,6 +33,7 @@ let at = function
   | If (p, _, _, _) -> p
   | While (p, _, _) -> p
   | For (p, _, _ , _, _) -> p
+  | Block (p, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -52,6 +54,8 @@ let rec to_string = function
     Printf.sprintf "While(%s) %s" (to_string cond) @@ to_string body
   | For(_, _, _ , _, body) ->
     Printf.sprintf "For(;;) %s" (to_string body)
+  | Block(_, stmts) ->
+    String.concat "\n" @@ List.map to_string stmts
 
 let (let>) = (>>=)
 
@@ -114,7 +118,7 @@ let equality_op =
   let neq = exactly '!' >>> exactly '=' >>> return Neq in
   eq <|> neq
 
-let variables =
+let variable = label "variable" @@
   let> s = state in
   let> name = alpha <|> digit in
   begin match Local.find name with
@@ -137,6 +141,8 @@ let keyword k =
 
 let lparen = exactly '('
 let rparen = exactly ')'
+let lcbrace = exactly '{'
+let rcbrace = exactly '}'
 let seperator = exactly ';'
 
 (* primary = number | varriable | "(" expr ")" *)
@@ -146,7 +152,7 @@ let rec primary = lazy
      let> u = ignore_spaces @@ must @@ Lazy.force expr in
      let> _ = must rparen in return u
    in
-   label "primary" @@ either [number; variables; parens])
+   label "primary" @@ either [number; variable; parens])
 
 (* unary = ("+" | "-")? primary *)
 and unary = lazy
@@ -243,7 +249,8 @@ and expr = lazy
         | "return" expr ";"
         | "if" "(" expr ")" stmt ("else" stmt)?
         | "while" "(" expr ")" stmt
-        | "for" "(" expr? ";" expr? ";" expr? ")" stmt *)
+        | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+        | "{" stmt* "}"*)
 and stmt = lazy
   (let> s = state in
    let sexpr =
@@ -273,7 +280,7 @@ and stmt = lazy
      let> body = must @@ Lazy.force stmt in
      return @@ While(s, cond, body) in
    let sfor =
-     ignore_spaces_before @@ keyword "for" >>>
+     label "for" @@ ignore_spaces_before @@ keyword "for" >>>
      must @@ ignore_spaces lparen >>>
      let> init = maybe @@ Lazy.force expr in
      must @@ ignore_spaces seperator >>>
@@ -282,14 +289,19 @@ and stmt = lazy
      let> next = maybe @@ Lazy.force expr in
      must @@ ignore_spaces rparen >>>
      let> body = must @@ Lazy.force stmt in
-     return @@ For(s, init, cond, next, body)
+     return @@ For(s, init, cond, next, body) in
+   let sblock =
+     label "block" @@ ignore_spaces @@ lcbrace >>>
+     let> stmts =  must @@ zero_plus @@ Lazy.force stmt in
+     must @@ ignore_spaces @@ rcbrace >>>
+     return @@ Block(s, stmts)
    in
-   either [sreturn; sif; swhile; sfor; sexpr;])
+   either [sreturn; sif; swhile; sfor; sblock; sexpr;])
 
 (* program = stmt *)
 and program = lazy
   (let> node = one_plus @@ Lazy.force stmt in
-   let> () = eof in
+   let> () = label "eof" @@ eof in
    return node)
 
 let parse ?(debug=false) input =
