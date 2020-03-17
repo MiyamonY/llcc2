@@ -22,6 +22,7 @@ type node =
   | Return of pos * node
   | If of pos * node * node * node option
   | While of pos * node * node
+  | For of pos * node option * node option * node option * node
 
 let at = function
   | Number (p, _) -> p
@@ -30,6 +31,7 @@ let at = function
   | Return (p, _) -> p
   | If (p, _, _, _) -> p
   | While (p, _, _) -> p
+  | For (p, _, _ , _, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -48,6 +50,8 @@ let rec to_string = function
     Printf.sprintf "If(%s) %s %s" (to_string cond) (to_string then_) el
   | While(_, cond, body) ->
     Printf.sprintf "While(%s) %s" (to_string cond) @@ to_string body
+  | For(_, _, _ , _, body) ->
+    Printf.sprintf "For(;;) %s" (to_string body)
 
 let (let>) = (>>=)
 
@@ -117,7 +121,7 @@ let variables =
     | None -> Local.add_varaible name
     | Some _ -> ()
   end;
-  let keywords = ["if"; "return"; "while"; "else"] in
+  let keywords = ["if"; "return"; "while"; "else"; "for"] in
   if List.exists ((=) name) keywords then fail
   else return @@ Variable (s, name)
 
@@ -238,7 +242,8 @@ and expr = lazy
 (* stmt = expr ";"
         | "return" expr ";"
         | "if" "(" expr ")" stmt ("else" stmt)?
-        | "while" "(" expr ")" stmt *)
+        | "while" "(" expr ")" stmt
+        | "for" "(" expr? ";" expr? ";" expr? ")" stmt *)
 and stmt = lazy
   (let> s = state in
    let sexpr =
@@ -266,9 +271,20 @@ and stmt = lazy
      let> cond = must @@ Lazy.force expr in
      must @@ ignore_spaces rparen >>>
      let> body = must @@ Lazy.force stmt in
-     return @@ While(s, cond, body)
+     return @@ While(s, cond, body) in
+   let sfor =
+     ignore_spaces_before @@ keyword "for" >>>
+     must @@ ignore_spaces lparen >>>
+     let> init = maybe @@ Lazy.force expr in
+     must @@ ignore_spaces seperator >>>
+     let> cond = maybe @@ Lazy.force expr in
+     must @@ ignore_spaces seperator >>>
+     let> next = maybe @@ Lazy.force expr in
+     must @@ ignore_spaces rparen >>>
+     let> body = must @@ Lazy.force stmt in
+     return @@ For(s, init, cond, next, body)
    in
-   either [sreturn; sif; swhile; sexpr;])
+   either [sreturn; sif; swhile; sfor; sexpr;])
 
 (* program = stmt *)
 and program = lazy

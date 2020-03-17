@@ -12,7 +12,7 @@ let error_message  = function
     Printf.sprintf "Argument error: %s" msg
   | `ParserError (ParserCo.Report reps) ->
     (match reps with
-     | [] -> ""
+     | [] -> "Parser error"
      | (state, msg, _)::_ ->
        Printf.sprintf "Parser error: %s\n%s" msg
          (match state with

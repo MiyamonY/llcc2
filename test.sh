@@ -10,7 +10,7 @@ try() {
   status="$?"
 
   if [ "$status" = 1 ]; then
-      echo "error occured"
+      echo "$input => error occured"
       exit 1
   fi
 
@@ -95,6 +95,12 @@ try 0 "n=10; while(n) n=n-1;n;"
 try 10 "n=10; while(n < 10) n=n+1;n;"
 try 0 "n=0; while(n) n=n+1; n;"
 try 0 "n=10; while(n = 0) n=n+1; n;"
+try 15 "x = 0;for(n=0; n < 5; n = n+1) x = x + n;"
+try 55 "x = 0;n = 0; for(;n<10; n = n +1) x = x + n;"
+try 13 "for(n=0; n<10; ) n = n +1; n+3;"
+try 3 "for(a=0;a<3;) a=3; a;"
+try 2 "for(;;)return 2;"
+try 4 "for(a=10;a;a = 1+a) a = 0; a+4;"
 
 try_error "0"
 try_error "2 3;"
@@ -140,5 +146,14 @@ try_error "n=10; whi(n < 10) n=n+1;n;"
 try_error "n=10; while n < 10) n=n+1;n;"
 try_error "n=10; while(n < 10 n=n+1;n;"
 try_error "n=10; while(n < 10) n=n+1 n;"
+try_error "fo(a=0;a<10;a=1) return 3;"
+try_error "for(a=0 a<10;a=1) return 3;"
+try_error "for(a=0; a<10 a=1) return 3;"
+try_error "for(a=0; a<10) return 3;"
+try_error "for(a=0; a<10 ;a) return 3"
+try_error "return=3;return;"
+try_error "for=3;"
+try_error "if=3;"
+try_error "while=3;"
 
 echo OK
