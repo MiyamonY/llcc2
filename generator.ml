@@ -170,6 +170,9 @@ let rec generate_node = function
     List.fold_left
       (fun pred node -> pred >>> generate_node node >>> Writer.tell [Machine "pop rax"])
       (Writer.return (Ok ())) nodes
+  | FuncCall(_, name) ->
+    Writer.tell [Machine (Printf.sprintf "call %s" name);
+                 Machine "push rax";]
 
 let generate_nodes nodes =
   List.fold_left (fun pred node -> pred  >>> generate_node node) (Writer.return @@ (Ok ())) nodes

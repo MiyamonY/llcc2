@@ -14,7 +14,7 @@ try() {
       exit 1
   fi
 
-  gcc -o tmp tmp.s
+  gcc -o tmp tmp.s test.o
   ./tmp
   actual="$?"
 
@@ -39,6 +39,7 @@ try_error() {
 }
 
 dune build
+gcc -o test.o -c test.c
 
 try 0 "0;"
 try 42 "42;"
@@ -102,6 +103,7 @@ try 3 "for(a=0;a<3;) a=3; a;"
 try 2 "for(;;)return 2;"
 try 4 "for(a=10;a;a = 1+a) a = 0; a+4;"
 try 126 "b= 0; for(a=0;a<5; a = a + 1) { b = b + 1; b = b * 2;} b;"
+try 3 "foo(); 3;"
 
 try_error "0"
 try_error "2 3;"

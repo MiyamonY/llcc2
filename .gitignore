@@ -1,4 +1,5 @@
 _build/*
 *.out
 *.s
+*.o
 tmp

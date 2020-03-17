@@ -5,7 +5,10 @@ open ParserCo.Infix
 module Local = struct
   let local = ref []
 
-  let assign_size () = 8 * (List.length !local)
+  let assign_size () =
+    let n = 8 * (List.length !local) in
+    if n mod 16 = 0 then n
+    else n + 8
 
   let find name = List.assoc_opt name !local
 
@@ -24,6 +27,7 @@ type node =
   | While of pos * node * node
   | For of pos * node option * node option * node option * node
   | Block of pos * node list
+  | FuncCall of pos * string
 
 let at = function
   | Number (p, _) -> p
@@ -34,6 +38,7 @@ let at = function
   | While (p, _, _) -> p
   | For (p, _, _ , _, _) -> p
   | Block (p, _) -> p
+  | FuncCall (p, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -56,6 +61,7 @@ let rec to_string = function
     Printf.sprintf "For(;;) %s" (to_string body)
   | Block(_, stmts) ->
     String.concat "\n" @@ List.map to_string stmts
+  | FuncCall (_, name) -> Printf.sprintf "Call(%s)" name
 
 let (let>) = (>>=)
 
@@ -68,6 +74,16 @@ let digit =
   return @@ String.of_list b
 
 let alnum = digit <|> alpha
+
+let identifier = label "identifier" @@
+  let> name = alpha <|> digit in
+  begin match Local.find name with
+    | None -> Local.add_varaible name
+    | Some _ -> ()
+  end;
+  let keywords = ["if"; "return"; "while"; "else"; "for"] in
+  if List.exists ((=) name) keywords then fail
+  else return @@ name
 
 let spaces =
   let space = exactly ' ' in
@@ -118,17 +134,6 @@ let equality_op =
   let neq = exactly '!' >>> exactly '=' >>> return Neq in
   eq <|> neq
 
-let variable = label "variable" @@
-  let> s = state in
-  let> name = alpha <|> digit in
-  begin match Local.find name with
-    | None -> Local.add_varaible name
-    | Some _ -> ()
-  end;
-  let keywords = ["if"; "return"; "while"; "else"; "for"] in
-  if List.exists ((=) name) keywords then fail
-  else return @@ Variable (s, name)
-
 let number =
   let> s = state in
   let> b = one_plus @@ satisfy Char.is_digit in
@@ -145,14 +150,22 @@ let lcbrace = exactly '{'
 let rcbrace = exactly '}'
 let seperator = exactly ';'
 
-(* primary = number | varriable | "(" expr ")" *)
-let rec primary = lazy
-  (let parens =
-     let> _ = lparen in
-     let> u = ignore_spaces @@ must @@ Lazy.force expr in
-     let> _ = must rparen in return u
-   in
-   label "primary" @@ either [number; variable; parens])
+(* primary = number | ident("(" ")")? | "(" expr ")" *)
+let rec primary = lazy(
+  let parens =
+    let> _ = lparen in
+    let> u = ignore_spaces @@ must @@ Lazy.force expr in
+    let> _ = must rparen in return u in
+  let ident =
+    let> s = state in
+    let> ident = identifier in
+    let> next = maybe lparen in
+    match next with
+    | None -> return @@ Variable(s, ident)
+    | Some _ ->
+      must rparen >>> return @@ FuncCall(s, ident)
+  in
+  label "primary" @@ either [number; ident; parens])
 
 (* unary = ("+" | "-")? primary *)
 and unary = lazy
