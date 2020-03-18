@@ -27,7 +27,7 @@ type node =
   | While of pos * node * node
   | For of pos * node option * node option * node option * node
   | Block of pos * node list
-  | FuncCall of pos * string
+  | FuncCall of pos * string * node list
 
 let at = function
   | Number (p, _) -> p
@@ -38,7 +38,7 @@ let at = function
   | While (p, _, _) -> p
   | For (p, _, _ , _, _) -> p
   | Block (p, _) -> p
-  | FuncCall (p, _) -> p
+  | FuncCall (p, _, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -61,7 +61,8 @@ let rec to_string = function
     Printf.sprintf "For(;;) %s" (to_string body)
   | Block(_, stmts) ->
     String.concat "\n" @@ List.map to_string stmts
-  | FuncCall (_, name) -> Printf.sprintf "Call(%s)" name
+  | FuncCall (_, name, args) ->
+    Printf.sprintf "Call %s(%s)" name @@ String.concat ", " @@ List.map to_string args
 
 let (let>) = (>>=)
 
@@ -75,8 +76,10 @@ let digit =
 
 let alnum = digit <|> alpha
 
-let identifier = label "identifier" @@
-  let> name = alpha <|> digit in
+let identifier =
+  let> first = alpha in
+  let> rest  = zero_plus @@ either [alpha; digit] in
+  let name = first ^ String.concat "" rest in
   begin match Local.find name with
     | None -> Local.add_varaible name
     | Some _ -> ()
@@ -150,7 +153,7 @@ let lcbrace = exactly '{'
 let rcbrace = exactly '}'
 let seperator = exactly ';'
 
-(* primary = number | ident("(" ")")? | "(" expr ")" *)
+(* primary = number | ident("(" (expr ("," expr)* )?  ")")? | "(" expr ")" *)
 let rec primary = lazy(
   let parens =
     let> _ = lparen in
@@ -158,12 +161,13 @@ let rec primary = lazy(
     let> _ = must rparen in return u in
   let ident =
     let> s = state in
-    let> ident = identifier in
-    let> next = maybe lparen in
+    let> ident = label "identifier" @@ identifier in
+    let> next = label "lparen" @@ maybe lparen in
     match next with
     | None -> return @@ Variable(s, ident)
     | Some _ ->
-      must rparen >>> return @@ FuncCall(s, ident)
+      let> args = label "arguemnts" @@ zero_plus ~sep: (ignore_spaces @@ exactly ',') (Lazy.force expr) in
+      label "rparen" @@ must rparen >>> return @@ FuncCall(s, ident, args)
   in
   label "primary" @@ either [number; ident; parens])
 

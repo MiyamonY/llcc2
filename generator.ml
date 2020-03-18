@@ -170,7 +170,16 @@ let rec generate_node = function
     List.fold_left
       (fun pred node -> pred >>> generate_node node >>> Writer.tell [Machine "pop rax"])
       (Writer.return (Ok ())) nodes
-  | FuncCall(_, name) ->
+  | FuncCall(_, name, args)->
+    let arguments args =
+      let regs = ["rdi"; "rsi"; "rdx"; "rcx"; "r8"; "r9";] in
+      let maps = List.combine args @@ List.take (List.length args) regs in
+      List.fold_left (fun pred (node, reg) -> pred >>>
+                       let@ _ = generate_node node in
+                       Writer.tell [Machine "pop rax"] >>>
+                       Writer.tell [Machine (Printf.sprintf "mov %s, rax" reg)])
+        (Writer.return (Ok ())) maps in
+    arguments args >>>
     Writer.tell [Machine (Printf.sprintf "call %s" name);
                  Machine "push rax";]
 

@@ -104,6 +104,8 @@ try 2 "for(;;)return 2;"
 try 4 "for(a=10;a;a = 1+a) a = 0; a+4;"
 try 126 "b= 0; for(a=0;a<5; a = a + 1) { b = b + 1; b = b * 2;} b;"
 try 3 "foo(); 3;"
+try 17 "x=foo3(2, 4, 3 ); return x+ 3;"
+try 33 "foo6(3, 4,5,6,7,  8);"
 
 try_error "0"
 try_error "2 3;"
@@ -160,5 +162,9 @@ try_error "if=3;"
 try_error "while=3;"
 try_error "a=3;b=4;}"
 try_error "{a=3;b=4;"
+try_error "foo(;"
+try_error "foooo(3 2);"
+try_error "foooo(3,2,);"
+try_error "fooo 2,3);"
 
 echo OK
