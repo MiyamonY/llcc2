@@ -71,7 +71,8 @@ let init =
 
 let return = Writer.tell [Machine "pop rax";
                           Machine "mov rsp, rbp";
-                          Machine "pop rbp"; Machine "ret"]
+                          Machine "pop rbp";
+                          Machine "ret"]
 
 let rec generate_node = function
   | Number (_, n) -> Writer.tell [Machine (Printf.sprintf "push %d" n)]
@@ -95,7 +96,9 @@ let rec generate_node = function
     let lelse = Label.create () in
     let lend = Label.create () in
     let@ _ = generate_node cond in
-    Writer.tell [Machine "pop rax"; Machine "cmp rax, 0"; Machine (Printf.sprintf "je %s" lelse)] >>>
+    Writer.tell [Machine "pop rax";
+                 Machine "cmp rax, 0";
+                 Machine (Printf.sprintf "je %s" lelse)] >>>
     let@ result = generate_node then_ in
     begin match result with
       | Error _ as err -> Writer.return err
@@ -111,11 +114,18 @@ let rec generate_node = function
           | Ok _ -> Writer.tell [Label lend]
     end
   | Variable(_, _) as n ->
-    let@ _ = generate_lval n in
-    Writer.tell [Machine "pop rax"; Machine "mov rax, [rax]"; Machine "push rax"]
+    let@ result = generate_lval n in
+    begin match result with
+      | Error _ as err -> Writer.return err
+      | Ok _ ->
+        Writer.tell [Machine "pop rax"; Machine "mov rax, [rax]"; Machine "push rax"]
+    end
   | Return(_, node) ->
-    let@ _ = generate_node node in
-    return
+    begin let@ result = generate_node node in
+      match result with
+      | Error _ as err -> Writer.return err
+      | Ok _ -> return
+    end
   | While(_, cond, body) ->
     let lbegin = Label.create ~label:"WhileBegin" () in
     let lend = Label.create ~label:"WhileEnd" () in
@@ -124,7 +134,9 @@ let rec generate_node = function
     begin match result with
       | Error _ as err -> Writer.return err
       | Ok _ ->
-        Writer.tell [Machine "pop rax"; Machine "cmp rax, 0"; Machine (Printf.sprintf "je %s" lend);] >>>
+        Writer.tell [Machine "pop rax";
+                     Machine "cmp rax, 0";
+                     Machine (Printf.sprintf "je %s" lend);] >>>
         let@ result = generate_node body in
         match result with
         | Error _ as err -> Writer.return err
