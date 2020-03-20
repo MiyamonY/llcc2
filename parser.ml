@@ -2,18 +2,32 @@ open Batteries
 open ParserCo
 open ParserCo.Infix
 
-module Local = struct
-  let local = ref []
+module Local :
+sig
+  type name = string
+  type t
+  val create : unit -> t
+  val assign_size: t -> int
+  val find: t -> name -> int option
+  val add_variable: t -> name -> unit
+  val list_all_variables: t -> name list
+end = struct
+  type name = string
+  type t  = (name * int) list ref
+  let create () = ref []
 
-  let assign_size () =
+  let assign_size local =
     let n = 8 * (List.length !local) in
     if n mod 16 = 0 then n
     else n + 8
 
-  let find name = List.assoc_opt name !local
+  let find local name = List.assoc_opt name !local
 
-  let add_varaible name =
+  let add_variable local name =
     local := (name, 8 * (List.length !local)) :: !local
+
+  let list_all_variables local =
+    List.map Tuple2.first !local
 end
 
 type pos = CharParser.position state
@@ -28,7 +42,7 @@ type node =
   | For of pos * node option * node option * node option * node
   | Block of pos * node list
   | FuncCall of pos * string * node list
-  | FuncDecl of pos * string * node list
+  | FuncDecl of pos * string * Local.t * node list
 
 let at = function
   | Number (p, _) -> p
@@ -40,7 +54,7 @@ let at = function
   | For (p, _, _ , _, _) -> p
   | Block (p, _) -> p
   | FuncCall (p, _, _) -> p
-  | FuncDecl (p, _, _) -> p
+  | FuncDecl (p, _, _, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -65,8 +79,10 @@ let rec to_string = function
     String.concat "\n" @@ List.map to_string stmts
   | FuncCall (_, name, args) ->
     Printf.sprintf "Call %s(%s)" name @@ String.concat ", " @@ List.map to_string args
-  | FuncDecl (_, name, body) ->
-    Printf.sprintf "FuncDecl %s{%s}" name @@ String.concat "\n" @@ List.map to_string body
+  | FuncDecl (_, name, args, body) ->
+    Printf.sprintf "FuncDecl %s(locals: %s){%s}" name
+      (String.concat "," @@ Local.list_all_variables args)
+    @@ String.concat "\n" @@ List.map to_string body
 
 let (let>) = (>>=)
 
@@ -84,10 +100,6 @@ let identifier =
   let> first = alpha in
   let> rest  = zero_plus @@ either [alpha; digit] in
   let name = first ^ String.concat "" rest in
-  begin match Local.find name with
-    | None -> Local.add_varaible name
-    | Some _ -> ()
-  end;
   let keywords = ["if"; "return"; "while"; "else"; "for"] in
   if List.exists ((=) name) keywords then fail
   else return @@ name
@@ -158,28 +170,31 @@ let rcbrace = exactly '}'
 let seperator = exactly ';'
 
 (* primary = number | ident("(" (expr ("," expr)* )?  ")")? | "(" expr ")" *)
-let rec primary = lazy(
+let rec primary local = lazy(
   let parens =
     let> _ = lparen in
-    let> u = ignore_spaces @@ must @@ Lazy.force expr in
+    let> u = ignore_spaces @@ must @@ Lazy.force @@ expr local in
     let> _ = must rparen in return u in
   let ident =
     let> s = state in
     let> ident = label "identifier" @@ identifier in
     let> next = label "lparen" @@ maybe lparen in
     match next with
-    | None -> return @@ Variable(s, ident)
+    | None ->
+      Local.add_variable local ident;
+      return @@ Variable(s, ident)
     | Some _ ->
-      let> args = label "arguemnts" @@ zero_plus ~sep: (ignore_spaces @@ exactly ',') (Lazy.force expr) in
+      let> args = label "arguemnts" @@
+        zero_plus ~sep: (ignore_spaces @@ exactly ',') (Lazy.force @@ expr local) in
       label "rparen" @@ must rparen >>> return @@ FuncCall(s, ident, args)
   in
   label "primary" @@ either [number; ident; parens])
 
 (* unary = ("+" | "-")? primary *)
-and unary = lazy
+and unary local = lazy
   (let> s = state in
    let> sign = ignore_spaces @@ maybe unary_op in
-   let> p = Lazy.force primary in
+   let> p = Lazy.force @@ primary local in
    match sign with
    | None -> return p
    | Some op ->
@@ -189,7 +204,7 @@ and unary = lazy
      | _ -> fail)
 
 (* mul = unary ("*" unary | "/" unary)* *)
-and mul = lazy
+and mul local = lazy
   (label "mul" @@
    let rec aux left =
      let> s = state in
@@ -197,13 +212,13 @@ and mul = lazy
      match op with
      | None -> return left
      | Some op ->
-       let> right = must @@ Lazy.force unary in
+       let> right = must @@ Lazy.force @@ unary local in
        aux @@ BinaryOp (s, op, left, right) in
-   let> u = Lazy.force unary in
+   let> u = Lazy.force @@ unary local in
    aux u)
 
 (* add  = mul ("+" mul | "-" mul)* *)
-and add = lazy
+and add local = lazy
   (label "add" @@
    let rec aux left =
      let> s = state in
@@ -211,13 +226,13 @@ and add = lazy
      match op with
      | None -> return left
      | Some op ->
-       let> right = must @@ Lazy.force mul in
+       let> right = must @@ Lazy.force @@ mul local in
        aux @@ BinaryOp (s, op, left, right) in
-   let> u = Lazy.force mul in
+   let> u = Lazy.force @@ mul local in
    aux u)
 
 (* relational = add ("<" add | "<=" add | ">" add | ">=" add) * *)
-and relational = lazy
+and relational local = lazy
   (label "relational" @@
    let rec aux left =
      let> s = state in
@@ -225,16 +240,16 @@ and relational = lazy
      match op with
      | None -> return left
      | Some op ->
-       let> right = Lazy.force add in
+       let> right = Lazy.force @@ add local in
        aux (match op with
            | Gt -> BinaryOp (s, Lt, right, left)
            | Ge -> BinaryOp (s, Le, right, left)
            | _ -> BinaryOp (s, op, left, right)) in
-   let> u = Lazy.force add in
+   let> u = Lazy.force @@ add local in
    aux u)
 
 (* equality = relational ("==" relational | "!=" relational) * *)
-and equality = lazy
+and equality local = lazy
   (label "equality" @@
    let aux left =
      let> s = state in
@@ -242,13 +257,13 @@ and equality = lazy
      match op with
      | None -> return left
      | Some op ->
-       let> right = must @@ Lazy.force relational in
+       let> right = must @@ Lazy.force @@ relational local in
        return @@ BinaryOp (s, op, left, right) in
-   let> u = Lazy.force relational in
+   let> u = Lazy.force @@ relational local in
    aux u)
 
 (* assign = equality ("=" assign)? *)
-and assign = lazy
+and assign local = lazy
   (label "assign" @@
    let aux left =
      let> s = state in
@@ -256,15 +271,15 @@ and assign = lazy
      match op with
      | None -> return left
      | Some _ ->
-       let> right = must @@ Lazy.force assign in
+       let> right = must @@ Lazy.force @@ assign local in
        return @@ BinaryOp (s, Assign, left, right) in
-   let> u = Lazy.force equality in
+   let> u = Lazy.force @@ equality local in
    aux u)
 
 (* expr = equality *)
-and expr = lazy
+and expr local = lazy
   (label "expr" @@
-   Lazy.force assign)
+   Lazy.force @@ assign local)
 
 (* stmt = expr ";"
         | "return" expr ";"
@@ -272,48 +287,48 @@ and expr = lazy
         | "while" "(" expr ")" stmt
         | "for" "(" expr? ";" expr? ";" expr? ")" stmt
         | "{" stmt* "}"*)
-and stmt = lazy
+and stmt local = lazy
   (let> s = state in
    let sexpr =
-     let> node = ignore_spaces_before @@ Lazy.force expr in
+     let> node = ignore_spaces_before @@ Lazy.force @@ expr local in
      must @@ ignore_spaces_before seperator >>> return node in
    let sreturn =
      ignore_spaces @@ keyword "return" >>>
-     let> node = must @@ ignore_spaces @@ Lazy.force expr in
+     let> node = must @@ ignore_spaces @@ Lazy.force @@ expr local in
      must @@ ignore_spaces_before seperator >>> return @@ Return (s, node) in
    let sif =
      ignore_spaces_before @@ keyword "if" >>>
      must @@ ignore_spaces lparen >>>
-     let> cond = must @@ Lazy.force expr in
+     let> cond = must @@ Lazy.force @@ expr local in
      must @@ ignore_spaces rparen >>>
-     let> then_ = must @@ Lazy.force stmt in
+     let> then_ = must @@ Lazy.force @@ stmt local in
      let> else_clause = maybe @@ ignore_spaces @@ keyword "else" in
      match else_clause with
      | None -> return @@ If(s, cond, then_, None)
      | Some _ ->
-       let> else_ = must @@ Lazy.force stmt in
+       let> else_ = must @@ Lazy.force @@ stmt local in
        return @@ If(s, cond, then_, Some else_) in
    let swhile =
      ignore_spaces_before @@ keyword "while" >>>
      must @@ ignore_spaces lparen >>>
-     let> cond = must @@ Lazy.force expr in
+     let> cond = must @@ Lazy.force @@ expr local in
      must @@ ignore_spaces rparen >>>
-     let> body = must @@ Lazy.force stmt in
+     let> body = must @@ Lazy.force @@ stmt local in
      return @@ While(s, cond, body) in
    let sfor =
      label "for" @@ ignore_spaces_before @@ keyword "for" >>>
      must @@ ignore_spaces lparen >>>
-     let> init = maybe @@ Lazy.force expr in
+     let> init = maybe @@ Lazy.force @@ expr local in
      must @@ ignore_spaces seperator >>>
-     let> cond = maybe @@ Lazy.force expr in
+     let> cond = maybe @@ Lazy.force @@ expr local in
      must @@ ignore_spaces seperator >>>
-     let> next = maybe @@ Lazy.force expr in
+     let> next = maybe @@ Lazy.force @@ expr local in
      must @@ ignore_spaces rparen >>>
-     let> body = must @@ Lazy.force stmt in
+     let> body = must @@ Lazy.force @@ stmt local in
      return @@ For(s, init, cond, next, body) in
    let sblock =
      label "block" @@ ignore_spaces @@ lcbrace >>>
-     let> stmts =  must @@ zero_plus @@ Lazy.force stmt in
+     let> stmts =  must @@ zero_plus @@ Lazy.force @@ stmt local in
      must @@ ignore_spaces @@ rcbrace >>>
      return @@ Block(s, stmts)
    in
@@ -322,13 +337,14 @@ and stmt = lazy
 (* decls = (ident "(" ")" "{" stmts* "}")* *)
 and decls = lazy
   (let func_decl = let> s = state in
+     let local = Local.create () in
      let> ident = identifier in
      ignore_spaces @@ must lparen >>>
      ignore_spaces @@ must rparen >>>
      ignore_spaces @@ must lcbrace >>>
-     let> body = zero_plus @@ Lazy.force stmt in
+     let> body = zero_plus @@ Lazy.force @@ stmt local in
      ignore_spaces @@ must rcbrace >>>
-     return @@ FuncDecl (s, ident, body)in
+     return @@ FuncDecl (s, ident, local, body)in
    one_plus func_decl)
 
 (* program = decls *)
@@ -339,4 +355,4 @@ and program = lazy
 
 let parse ?(debug=false) input =
   debug_mode := debug;
-  run (Lazy.force program) (CharParser.source_of_string input)
+  run (Lazy.force program) @@ CharParser.source_of_string input
