@@ -70,7 +70,7 @@ let prolog =
   Writer.tell [Machine "push rbp";
                Machine "mov rbp, rsp";]
 
-let return =
+let epiloge =
   Writer.tell [Machine "pop rax";
                Machine "mov rsp, rbp";
                Machine "pop rbp";
@@ -129,7 +129,7 @@ let rec generate_node = function
     begin let@ result = generate_node node in
       match result with
       | Error _ as err -> Writer.return err
-      | Ok _ -> return
+      | Ok _ -> epiloge
     end
   | While(_, cond, body) ->
     let lbegin = Label.create ~label:"WhileBegin" () in
@@ -208,7 +208,7 @@ let rec generate_node = function
     let@ result = generate_nodes body in
     match result with
     | Error _ as err -> Writer.return err
-    | Ok _ -> return
+    | Ok _ -> epiloge
 
 and generate_nodes nodes =
   List.fold_left (fun pred node -> pred  >>> generate_node node) (Writer.return @@ (Ok ())) nodes
@@ -219,7 +219,7 @@ let generate parsed =
     let@ result = generate_nodes parsed in
     match result with
     | Error _ as err -> Writer.return err
-    | Ok _ -> return
+    | Ok _ -> Writer.return (Ok ())
   in
   Writer.run coms
   |> Result.map string_of_commands
