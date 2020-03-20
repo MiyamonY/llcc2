@@ -64,15 +64,20 @@ let generate_lval = function
 
 let init =
   Writer.tell [Assembler ".intel_syntax noprefix";
-               Assembler ".global main";
-               Label "main";
-               Machine "push rbp";
+               Assembler ".global main";]
+
+let prolog =
+  Writer.tell [Machine "push rbp";
                Machine "mov rbp, rsp";]
 
-let return = Writer.tell [Machine "pop rax";
-                          Machine "mov rsp, rbp";
-                          Machine "pop rbp";
-                          Machine "ret"]
+let return =
+  Writer.tell [Machine "pop rax";
+               Machine "mov rsp, rbp";
+               Machine "pop rbp";
+               Machine "ret"]
+
+let assign_local_variable n =
+  Writer.tell [Machine (Printf.sprintf "sub rsp, %d" n)]
 
 let rec generate_node = function
   | Number (_, n) -> Writer.tell [Machine (Printf.sprintf "push %d" n)]
@@ -165,7 +170,9 @@ let rec generate_node = function
           match result with
           | Error _ as err -> Writer.return err
           | Ok _ ->
-            Writer.tell [Machine "pop rax"; Machine "cmp rax, 0"; Machine (Printf.sprintf "je %s" lend);] >>>
+            Writer.tell [Machine "pop rax";
+                         Machine "cmp rax, 0";
+                         Machine (Printf.sprintf "je %s" lend);] >>>
             match next with
             | None -> Writer.tell
                         [Machine (Printf.sprintf "jmp %s" lrep);
@@ -194,17 +201,21 @@ let rec generate_node = function
     arguments args >>>
     Writer.tell [Machine (Printf.sprintf "call %s" name);
                  Machine "push rax";]
+  | FuncDecl (_, name, body) ->
+    Writer.tell [Label name] >>>
+    prolog >>>
+    assign_local_variable @@ Local.assign_size () >>>
+    let@ result = generate_nodes body in
+    match result with
+    | Error _ as err -> Writer.return err
+    | Ok _ -> return
 
-let generate_nodes nodes =
+and generate_nodes nodes =
   List.fold_left (fun pred node -> pred  >>> generate_node node) (Writer.return @@ (Ok ())) nodes
-
-let assign_local_variable n =
-  Writer.tell [Machine (Printf.sprintf "sub rsp, %d" n)]
 
 let generate parsed =
   let coms =
     init >>>
-    assign_local_variable @@ Local.assign_size () >>>
     let@ result = generate_nodes parsed in
     match result with
     | Error _ as err -> Writer.return err

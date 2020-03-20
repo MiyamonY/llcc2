@@ -28,6 +28,7 @@ type node =
   | For of pos * node option * node option * node option * node
   | Block of pos * node list
   | FuncCall of pos * string * node list
+  | FuncDecl of pos * string * node list
 
 let at = function
   | Number (p, _) -> p
@@ -39,6 +40,7 @@ let at = function
   | For (p, _, _ , _, _) -> p
   | Block (p, _) -> p
   | FuncCall (p, _, _) -> p
+  | FuncDecl (p, _, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -63,6 +65,8 @@ let rec to_string = function
     String.concat "\n" @@ List.map to_string stmts
   | FuncCall (_, name, args) ->
     Printf.sprintf "Call %s(%s)" name @@ String.concat ", " @@ List.map to_string args
+  | FuncDecl (_, name, body) ->
+    Printf.sprintf "FuncDecl %s{%s}" name @@ String.concat "\n" @@ List.map to_string body
 
 let (let>) = (>>=)
 
@@ -315,9 +319,21 @@ and stmt = lazy
    in
    either [sreturn; sif; swhile; sfor; sblock; sexpr;])
 
-(* program = stmt *)
+(* decls = (ident "(" ")" "{" stmts* "}")* *)
+and decls = lazy
+  (let func_decl = let> s = state in
+     let> ident = identifier in
+     ignore_spaces @@ must lparen >>>
+     ignore_spaces @@ must rparen >>>
+     ignore_spaces @@ must lcbrace >>>
+     let> body = zero_plus @@ Lazy.force stmt in
+     ignore_spaces @@ must rcbrace >>>
+     return @@ FuncDecl (s, ident, body)in
+   one_plus func_decl)
+
+(* program = decls *)
 and program = lazy
-  (let> node = one_plus @@ Lazy.force stmt in
+  (let> node = Lazy.force decls in
    let> () = label "eof" @@ eof in
    return node)
 
