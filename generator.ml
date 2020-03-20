@@ -76,6 +76,23 @@ let epiloge =
                Machine "pop rbp";
                Machine "ret"]
 
+let move_arguments_to_stack local args =
+  let regs = ["rdi"; "rsi"; "rdx"; "rcx"; "r8"; "r9";] in
+  let maps = List.combine args @@ List.take (List.length args) regs in
+  List.fold_left (fun pred (name, reg) ->
+      match Local.find local name with
+      | None ->
+        Writer.return @@
+        Result.error @@ `GeneratorError (None, Printf.sprintf "%s not found in local" @@ name)
+      | Some n ->
+        pred >>>
+        Writer.tell [Machine "mov rax, rbp";
+                     Machine (Printf.sprintf "sub rax, %d" @@ n);
+                     Machine "push rax";
+                     Machine "pop rax";
+                     Machine (Printf.sprintf "mov [rax], %s" reg)])
+    (Writer.return (Ok ())) maps
+
 let assign_local_variable n =
   Writer.tell [Machine (Printf.sprintf "sub rsp, %d" n)]
 
@@ -201,9 +218,10 @@ let rec generate_node local = function
     arguments args >>>
     Writer.tell [Machine (Printf.sprintf "call %s" name);
                  Machine "push rax";]
-  | FuncDecl (_, name, local, body) ->
+  | FuncDecl (_, name, local, args, body) ->
     Writer.tell [Label name] >>>
     prolog >>>
+    move_arguments_to_stack local args >>>
     assign_local_variable @@ Local.assign_size local >>>
     let@ result = generate_nodes local body in
     match result with

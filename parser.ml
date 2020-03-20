@@ -32,6 +32,8 @@ end
 
 type pos = CharParser.position state
 
+type args = string list
+
 type node =
   | Number of pos * int
   | BinaryOp of pos * Operator.t * node * node
@@ -42,7 +44,7 @@ type node =
   | For of pos * node option * node option * node option * node
   | Block of pos * node list
   | FuncCall of pos * string * node list
-  | FuncDecl of pos * string * Local.t * node list
+  | FuncDecl of pos * string * Local.t * args * node list
 
 let at = function
   | Number (p, _) -> p
@@ -54,7 +56,7 @@ let at = function
   | For (p, _, _ , _, _) -> p
   | Block (p, _) -> p
   | FuncCall (p, _, _) -> p
-  | FuncDecl (p, _, _, _) -> p
+  | FuncDecl (p, _, _, _, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -79,9 +81,9 @@ let rec to_string = function
     String.concat "\n" @@ List.map to_string stmts
   | FuncCall (_, name, args) ->
     Printf.sprintf "Call %s(%s)" name @@ String.concat ", " @@ List.map to_string args
-  | FuncDecl (_, name, args, body) ->
-    Printf.sprintf "FuncDecl %s(locals: %s){%s}" name
-      (String.concat "," @@ Local.list_all_variables args)
+  | FuncDecl (_, name, _, args, body) ->
+    Printf.sprintf "FuncDecl %s(%s){%s}" name
+      (String.concat ", " args)
     @@ String.concat "\n" @@ List.map to_string body
 
 let (let>) = (>>=)
@@ -334,17 +336,19 @@ and stmt local = lazy
    in
    either [sreturn; sif; swhile; sfor; sblock; sexpr;])
 
-(* decls = (ident "(" ")" "{" stmts* "}")* *)
+(* decls = (ident "(" ( expr ("," expr)* )? ")" "{" stmts* "}")* *)
 and decls = lazy
   (let func_decl = let> s = state in
      let local = Local.create () in
      let> ident = identifier in
-     ignore_spaces @@ must lparen >>>
-     ignore_spaces @@ must rparen >>>
-     ignore_spaces @@ must lcbrace >>>
+     must @@ ignore_spaces lparen >>>
+     let> args = zero_plus ~sep:(ignore_spaces @@ exactly ',') identifier in
+     List.iter (Local.add_variable local) args;
+     must @@ ignore_spaces rparen >>>
+     must @@ ignore_spaces lcbrace >>>
      let> body = zero_plus @@ Lazy.force @@ stmt local in
      ignore_spaces @@ must rcbrace >>>
-     return @@ FuncDecl (s, ident, local, body)in
+     return @@ FuncDecl (s, ident, local, args, body)in
    one_plus func_decl)
 
 (* program = decls *)

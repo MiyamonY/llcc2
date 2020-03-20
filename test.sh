@@ -14,7 +14,7 @@ try() {
       exit 1
   fi
 
-  gcc -o tmp tmp.s test.o
+  gcc -o tmp tmp.s
   ./tmp
   actual="$?"
 
@@ -39,7 +39,6 @@ try_error() {
 }
 
 dune build
-gcc -o test.o -c test.c
 
 try 0  "main(){0;}"
 try 42 "main(){42;}"
@@ -103,11 +102,13 @@ try 3 "main(){for(a=0;a<3;) a=3; a;}"
 try 2 "main(){for(;;)return 2;}"
 try 4 "main(){for(a=10;a;a = 1+a) a = 0; a+4;}"
 try 126 "main(){b= 0; for(a=0;a<5; a = a + 1) { b = b + 1; b = b * 2;} b;}"
-try 3 "main(){foo(); 3;}"
-try 17 "main(){x=foo3(2, 4, 3 ); return x+ 3;}"
-try 33 "main(){foo6(3, 4,5,6,7,  8);}"
+try 3 "foo(){} main(){foo(); 3;}"
+try 17 "foo3(a,b,c){ return a+b*3;} main(){x=foo3(2, 4, 3 ); return x+ 3;}"
+try 33 "foo6(a,b,c,d,e,f){a+ b+c+d+e+f;} main(){foo6(3, 4,5,6,7,  8);}"
 try 4 "foo(){return 4;} main(){return foo();}"
 try 12 "bar(){return 5;}foo(){return 4;} main(){return foo()+bar()+3;}"
+try 3 "bar(a){return a;} main(){3;}"
+try 6 "bar (a,b,c) {return a+b+c;} main(){bar(1,2,3);}"
 
 try_error "main(){0}"
 try_error "main(){2 3;}"
@@ -175,5 +176,8 @@ try_error "main({1+2;}"
 try_error "main){1+2;}"
 try_error "main()1+2;}"
 try_error "main(){1+2;"
+try_error "foo(a b){1+2;}"
+try_error "foo(a,b c){1+2;}"
+try_error "foo(a,b){1+2;};"
 
 echo OK
