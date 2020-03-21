@@ -107,7 +107,7 @@ let identifier =
   else return @@ name
 
 let spaces =
-  let space = exactly ' ' in
+  let space = either [exactly ' '; exactly '\n'] in
   ignore_zero_plus space
 
 let ignore_spaces_after m =
