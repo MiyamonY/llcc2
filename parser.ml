@@ -172,10 +172,10 @@ let rcbrace = exactly '}'
 let seperator = exactly ';'
 
 (* primary = number | ident("(" (expr ("," expr)* )?  ")")? | "(" expr ")" *)
-let rec primary local = lazy(
+let rec primary local =
   let parens =
     let> _ = lparen in
-    let> u = ignore_spaces @@ must @@ Lazy.force @@ expr local in
+    let> u = ignore_spaces @@ must @@ expr local in
     let> _ = must rparen in return u in
   let ident =
     let> s = state in
@@ -187,23 +187,23 @@ let rec primary local = lazy(
       return @@ Variable(s, ident)
     | Some _ ->
       let> args = label "arguemnts" @@
-        zero_plus ~sep: (ignore_spaces @@ exactly ',') (Lazy.force @@ expr local) in
+        zero_plus ~sep: (ignore_spaces @@ exactly ',') (expr local) in
       label "rparen" @@ must rparen >>> return @@ FuncCall(s, ident, args)
   in
-  label "primary" @@ either [number; ident; parens])
+  label "primary" @@ either [number; ident; parens]
 
 (* unary = ("+" | "-")? primary *)
-and unary local = lazy
-  (let> s = state in
-   let> sign = ignore_spaces @@ maybe unary_op in
-   let> p = Lazy.force @@ primary local in
-   match sign with
-   | None -> return p
-   | Some op ->
-     match op with
-     | Plus -> return p
-     | Minus -> return @@ BinaryOp(s, Minus, Number(s, 0), p)
-     | _ -> fail)
+and unary local =
+  let> s = state in
+  let> sign = ignore_spaces @@ maybe unary_op in
+  let> p = primary local in
+  match sign with
+  | None -> return p
+  | Some op ->
+    match op with
+    | Plus -> return p
+    | Minus -> return @@ BinaryOp(s, Minus, Number(s, 0), p)
+    | _ -> fail
 
 (* mul = unary ("*" unary | "/" unary)* *)
 and mul local = lazy
@@ -214,74 +214,71 @@ and mul local = lazy
      match op with
      | None -> return left
      | Some op ->
-       let> right = must @@ Lazy.force @@ unary local in
+       let> right = must @@ unary local in
        aux @@ BinaryOp (s, op, left, right) in
-   let> u = Lazy.force @@ unary local in
+   let> u =  unary local in
    aux u)
 
 (* add  = mul ("+" mul | "-" mul)* *)
-and add local = lazy
-  (label "add" @@
-   let rec aux left =
-     let> s = state in
-     let> op = ignore_spaces @@ maybe add_op in
-     match op with
-     | None -> return left
-     | Some op ->
-       let> right = must @@ Lazy.force @@ mul local in
-       aux @@ BinaryOp (s, op, left, right) in
-   let> u = Lazy.force @@ mul local in
-   aux u)
+and add local =
+  label "add" @@
+  let rec aux left =
+    let> s = state in
+    let> op = ignore_spaces @@ maybe add_op in
+    match op with
+    | None -> return left
+    | Some op ->
+      let> right = must @@ Lazy.force @@ mul local in
+      aux @@ BinaryOp (s, op, left, right) in
+  let> u = Lazy.force @@ mul local in
+  aux u
 
 (* relational = add ("<" add | "<=" add | ">" add | ">=" add) * *)
-and relational local = lazy
-  (label "relational" @@
-   let rec aux left =
-     let> s = state in
-     let> op = ignore_spaces @@ maybe relational_op in
-     match op with
-     | None -> return left
-     | Some op ->
-       let> right = Lazy.force @@ add local in
-       aux (match op with
-           | Gt -> BinaryOp (s, Lt, right, left)
-           | Ge -> BinaryOp (s, Le, right, left)
-           | _ -> BinaryOp (s, op, left, right)) in
-   let> u = Lazy.force @@ add local in
-   aux u)
+and relational local =
+  label "relational" @@
+  let rec aux left =
+    let> s = state in
+    let> op = ignore_spaces @@ maybe relational_op in
+    match op with
+    | None -> return left
+    | Some op ->
+      let> right = add local in
+      aux (match op with
+          | Gt -> BinaryOp (s, Lt, right, left)
+          | Ge -> BinaryOp (s, Le, right, left)
+          | _ -> BinaryOp (s, op, left, right)) in
+  let> u = add local in
+  aux u
 
 (* equality = relational ("==" relational | "!=" relational) * *)
-and equality local = lazy
-  (label "equality" @@
-   let aux left =
-     let> s = state in
-     let> op = ignore_spaces @@ maybe equality_op in
-     match op with
-     | None -> return left
-     | Some op ->
-       let> right = must @@ Lazy.force @@ relational local in
-       return @@ BinaryOp (s, op, left, right) in
-   let> u = Lazy.force @@ relational local in
-   aux u)
+and equality local =
+  label "equality" @@
+  let aux left =
+    let> s = state in
+    let> op = ignore_spaces @@ maybe equality_op in
+    match op with
+    | None -> return left
+    | Some op ->
+      let> right = must @@ relational local in
+      return @@ BinaryOp (s, op, left, right) in
+  let> u = relational local in
+  aux u
 
 (* assign = equality ("=" assign)? *)
-and assign local = lazy
-  (label "assign" @@
-   let aux left =
-     let> s = state in
-     let> op = ignore_spaces @@ maybe @@ exactly '=' in
-     match op with
-     | None -> return left
-     | Some _ ->
-       let> right = must @@ Lazy.force @@ assign local in
-       return @@ BinaryOp (s, Assign, left, right) in
-   let> u = Lazy.force @@ equality local in
-   aux u)
+and assign local =
+  let aux left =
+    let> s = state in
+    let> op = ignore_spaces @@ maybe @@ exactly '=' in
+    match op with
+    | None -> return left
+    | Some _ ->
+      let> right = must @@ assign local in
+      return @@ BinaryOp (s, Assign, left, right) in
+  let> u = equality local in
+  aux u
 
 (* expr = equality *)
-and expr local = lazy
-  (label "expr" @@
-   Lazy.force @@ assign local)
+and expr local = assign local
 
 (* stmt = expr ";"
         | "return" expr ";"
@@ -289,52 +286,52 @@ and expr local = lazy
         | "while" "(" expr ")" stmt
         | "for" "(" expr? ";" expr? ";" expr? ")" stmt
         | "{" stmt* "}"*)
-and stmt local = lazy
-  (let> s = state in
-   let sexpr =
-     let> node = ignore_spaces_before @@ Lazy.force @@ expr local in
-     must @@ ignore_spaces_before seperator >>> return node in
-   let sreturn =
-     ignore_spaces @@ keyword "return" >>>
-     let> node = must @@ ignore_spaces @@ Lazy.force @@ expr local in
-     must @@ ignore_spaces_before seperator >>> return @@ Return (s, node) in
-   let sif =
-     ignore_spaces_before @@ keyword "if" >>>
-     must @@ ignore_spaces lparen >>>
-     let> cond = must @@ Lazy.force @@ expr local in
-     must @@ ignore_spaces rparen >>>
-     let> then_ = must @@ Lazy.force @@ stmt local in
-     let> else_clause = maybe @@ ignore_spaces @@ keyword "else" in
-     match else_clause with
-     | None -> return @@ If(s, cond, then_, None)
-     | Some _ ->
-       let> else_ = must @@ Lazy.force @@ stmt local in
-       return @@ If(s, cond, then_, Some else_) in
-   let swhile =
-     ignore_spaces_before @@ keyword "while" >>>
-     must @@ ignore_spaces lparen >>>
-     let> cond = must @@ Lazy.force @@ expr local in
-     must @@ ignore_spaces rparen >>>
-     let> body = must @@ Lazy.force @@ stmt local in
-     return @@ While(s, cond, body) in
-   let sfor =
-     label "for" @@ ignore_spaces_before @@ keyword "for" >>>
-     must @@ ignore_spaces lparen >>>
-     let> init = maybe @@ Lazy.force @@ expr local in
-     must @@ ignore_spaces seperator >>>
-     let> cond = maybe @@ Lazy.force @@ expr local in
-     must @@ ignore_spaces seperator >>>
-     let> next = maybe @@ Lazy.force @@ expr local in
-     must @@ ignore_spaces rparen >>>
-     let> body = must @@ Lazy.force @@ stmt local in
-     return @@ For(s, init, cond, next, body) in
-   let sblock =
-     label "block" @@ ignore_spaces @@ lcbrace >>>
-     let> stmts =  must @@ zero_plus @@ Lazy.force @@ stmt local in
-     must @@ ignore_spaces @@ rcbrace >>>
-     return @@ Block(s, stmts)
-   in
-   either [sreturn; sif; swhile; sfor; sblock; sexpr;])
+and stmt local =
+  let> s = state in
+  let sexpr =
+    let> node = ignore_spaces_before @@ expr local in
+    must @@ ignore_spaces_before seperator >>> return node in
+  let sreturn =
+    ignore_spaces @@ keyword "return" >>>
+    let> node = must @@ ignore_spaces @@ expr local in
+    must @@ ignore_spaces_before seperator >>> return @@ Return (s, node) in
+  let sif =
+    ignore_spaces_before @@ keyword "if" >>>
+    must @@ ignore_spaces lparen >>>
+    let> cond = must @@ expr local in
+    must @@ ignore_spaces rparen >>>
+    let> then_ = must @@ stmt local in
+    let> else_clause = maybe @@ ignore_spaces @@ keyword "else" in
+    match else_clause with
+    | None -> return @@ If(s, cond, then_, None)
+    | Some _ ->
+      let> else_ = must @@ stmt local in
+      return @@ If(s, cond, then_, Some else_) in
+  let swhile =
+    ignore_spaces_before @@ keyword "while" >>>
+    must @@ ignore_spaces lparen >>>
+    let> cond = must @@ expr local in
+    must @@ ignore_spaces rparen >>>
+    let> body = must @@ stmt local in
+    return @@ While(s, cond, body) in
+  let sfor =
+    label "for" @@ ignore_spaces_before @@ keyword "for" >>>
+    must @@ ignore_spaces lparen >>>
+    let> init = maybe @@ expr local in
+    must @@ ignore_spaces seperator >>>
+    let> cond = maybe @@ expr local in
+    must @@ ignore_spaces seperator >>>
+    let> next = maybe @@ expr local in
+    must @@ ignore_spaces rparen >>>
+    let> body = must @@ stmt local in
+    return @@ For(s, init, cond, next, body) in
+  let sblock =
+    label "block" @@ ignore_spaces @@ lcbrace >>>
+    let> stmts = must @@ zero_plus @@ stmt local in
+    must @@ ignore_spaces @@ rcbrace >>>
+    return @@ Block(s, stmts)
+  in
+  either [sreturn; sif; swhile; sfor; sblock; sexpr;]
 
 (* decls = (ident "(" ( expr ("," expr)* )? ")" "{" stmts* "}")* *)
 and decls = lazy
@@ -346,7 +343,7 @@ and decls = lazy
      List.iter (Local.add_variable local) args;
      must @@ ignore_spaces rparen >>>
      must @@ ignore_spaces lcbrace >>>
-     let> body = zero_plus @@ Lazy.force @@ stmt local in
+     let> body = zero_plus @@ stmt local in
      ignore_spaces @@ must rcbrace >>>
      return @@ FuncDecl (s, ident, local, args, body)in
    one_plus func_decl)
