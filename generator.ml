@@ -70,6 +70,8 @@ let prolog =
   Writer.tell [Machine "push rbp";
                Machine "mov rbp, rsp";]
 
+let label name = Writer.tell [Label name]
+
 let epiloge =
   Writer.tell [Machine "pop rax";
                Machine "mov rsp, rbp";
@@ -126,14 +128,14 @@ let rec generate_node local = function
       | Error _ as err -> Writer.return err
       | Ok _ ->
         Writer.tell [Machine (Printf.sprintf "jmp %s" lend)] >>>
-        Writer.tell [Label lelse] >>>
+        label lelse >>>
         match else_ with
-        | None -> Writer.tell [Label lend]
+        | None -> label lend
         | Some node ->
           let@ result = generate_node local node in
           match result with
           | Error _ as err -> Writer.return err
-          | Ok _ -> Writer.tell [Label lend]
+          | Ok _ -> label lend
     end
   | Variable(_, _) as n ->
     let@ result = generate_lval local n in
@@ -151,7 +153,7 @@ let rec generate_node local = function
   | While(_, cond, body) ->
     let lbegin = Label.create ~label:"WhileBegin" () in
     let lend = Label.create ~label:"WhileEnd" () in
-    Writer.tell [Label lbegin] >>>
+    label lbegin >>>
     let@ result = generate_node local cond in
     begin match result with
       | Error _ as err -> Writer.return err
@@ -163,8 +165,8 @@ let rec generate_node local = function
         match result with
         | Error _ as err -> Writer.return err
         | Ok _ ->
-          Writer.tell [Machine (Printf.sprintf "jmp %s" lbegin);
-                       Label lend]
+          Writer.tell [Machine (Printf.sprintf "jmp %s" lbegin)]>>>
+          label lend
     end
   | For(_, init, cond, next, body) ->
     begin
@@ -176,7 +178,7 @@ let rec generate_node local = function
       match result with
       | Error _ as err -> Writer.return err
       | Ok _ ->
-        Writer.tell [Label lrep] >>>
+        label lrep >>>
         let@ result = generate_node local body in
         match result with
         | Error _ as err -> Writer.return err
@@ -191,16 +193,16 @@ let rec generate_node local = function
                          Machine "cmp rax, 0";
                          Machine (Printf.sprintf "je %s" lend);] >>>
             match next with
-            | None -> Writer.tell
-                        [Machine (Printf.sprintf "jmp %s" lrep);
-                         Label lend]
+            | None ->
+              Writer.tell [Machine (Printf.sprintf "jmp %s" lrep)] >>>
+              label lend
             | Some node ->
               let@ result = generate_node local node in
               match result with
               | Error _ as err -> Writer.return err
               | Ok _ ->
-                Writer.tell [Machine (Printf.sprintf "jmp %s" lrep);
-                             Label lend]
+                Writer.tell [Machine (Printf.sprintf "jmp %s" lrep)]>>>
+                label lend
     end
   | Block(_, nodes) ->
     List.fold_left
@@ -219,7 +221,7 @@ let rec generate_node local = function
     Writer.tell [Machine (Printf.sprintf "call %s" name);
                  Machine "push rax";]
   | FuncDecl (_, name, local, args, body) ->
-    Writer.tell [Label name] >>>
+    label name >>>
     prolog >>>
     move_arguments_to_stack local args >>>
     assign_local_variable @@ Local.assign_size local >>>
