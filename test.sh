@@ -109,6 +109,9 @@ try 4 "foo(){return 4;} main(){return foo();}"
 try 12 "bar(){return 5;}foo(){return 4;} main(){return foo()+bar()+3;}"
 try 3 "bar(a){return a;} main(){3;}"
 try 6 "bar (a,b,c) {return a+b+c;} main(){bar(1,2,3);}"
+try 67 "foo ( ) { 3; }
+bar(a,b,c,d,e,f){return a*b-c*d+e*f;}
+main(){x=3; return bar(2*5,x*3,8,7,6,5) + foo();}"
 
 try_error "main(){0}"
 try_error "main(){2 3;}"

@@ -216,7 +216,8 @@ let rec generate_node local = function
                        let@ _ = generate_node local node in
                        Writer.tell [Machine "pop rax"] >>>
                        Writer.tell [Machine (Printf.sprintf "mov %s, rax" reg)])
-        (Writer.return (Ok ())) maps in
+
+        (Writer.return (Ok ())) @@ List.rev maps in
     arguments args >>>
     Writer.tell [Machine (Printf.sprintf "call %s" name);
                  Machine "push rax";]
