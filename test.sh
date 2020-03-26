@@ -182,5 +182,7 @@ try_error "main(){1+2;"
 try_error "foo(a b){1+2;}"
 try_error "foo(a,b c){1+2;}"
 try_error "foo(a,b){1+2;};"
+try_error "foo(a+1, b){1+2;}"
+try_error "foo(a){1+2;3+;4+5;return 3;}main(){foo();}"
 
 echo OK
