@@ -12,6 +12,8 @@ type t =
   | Gt
   | Ge
   | Assign
+  | Ref
+  | Deref
 
 let to_string = function
   | Plus -> "+"
@@ -25,6 +27,8 @@ let to_string = function
   | Gt -> ">"
   | Ge -> ">="
   | Assign -> "="
+  | Ref -> "&"
+  | Deref -> "*"
 
 let of_string c =
   match String.of_char c with

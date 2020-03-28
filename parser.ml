@@ -45,6 +45,7 @@ type node =
   | Block of pos * node list
   | FuncCall of pos * string * node list
   | FuncDecl of pos * string * Local.t * args * node list
+  | Op of pos * Operator.t * node
 
 let at = function
   | Number (p, _) -> p
@@ -57,6 +58,7 @@ let at = function
   | Block (p, _) -> p
   | FuncCall (p, _, _) -> p
   | FuncDecl (p, _, _, _, _) -> p
+  | Op (p, _, _) -> p
 
 let rec to_string = function
   | Number(_, n)  -> Printf.sprintf "Number(%d)" n
@@ -85,6 +87,8 @@ let rec to_string = function
     Printf.sprintf "FuncDecl %s(%s){%s}" name
       (String.concat ", " args)
     @@ String.concat "\n" @@ List.map to_string body
+  | Op (_, op, node) ->
+    Printf.sprintf "%s%s" (Operator.to_string op) @@ to_string node
 
 let (let>) = (>>=)
 
@@ -127,7 +131,9 @@ let unary_op =
   let open Operator in
   let plus = exactly '+' >>> return Plus in
   let minus = exactly '-' >>> return Minus in
-  plus <|> minus
+  let ref_ = exactly '&' >>> return Ref in
+  let deref = exactly '*' >>> return Deref in
+  plus <|> minus <|> ref_ <|> deref
 
 let mul_op =
   let open Operator in
@@ -192,7 +198,7 @@ let rec primary local =
   in
   label "primary" @@ either [number; ident; parens]
 
-(* unary = ("+" | "-")? primary *)
+(* unary = ("+" | "-" | "*" | "&")? primary *)
 and unary local =
   let> s = state in
   let> sign = ignore_spaces @@ maybe unary_op in
@@ -203,6 +209,8 @@ and unary local =
     match op with
     | Plus -> return p
     | Minus -> return @@ BinaryOp(s, Minus, Number(s, 0), p)
+    | Ref -> return @@ Op (s, Ref, p)
+    | Deref -> return @@ Op (s, Deref, p)
     | _ -> fail
 
 (* mul = unary ("*" unary | "/" unary)* *)

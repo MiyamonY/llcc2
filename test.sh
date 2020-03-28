@@ -112,13 +112,16 @@ try 6 "bar (a,b,c) {return a+b+c;} main(){bar(1,2,3);}"
 try 67 "foo ( ) { 3; }
 bar(a,b,c,d,e,f){return a*b-c*d+e*f;}
 main(){x=3; return bar(2*5,x*3,8,7,6,5) + foo();}"
+try 3 "main(){x = 3; y = &x; return *y;}"
+try 4 "main(){x = 4; return *(&x);}"
+try 25 "main(){x =5; y = &x; return 5**y;}"
+try 3 "foo(a){return *a;} main(){x=3; return foo(&x);}"
 
 try_error "main(){0}"
 try_error "main(){2 3;}"
 try_error "main(){23 323 2;}"
 try_error "main(){1-(4-3;}"
 try_error "main(){)+1+2 ;}"
-try_error "main(){2**3;}"
 try_error "main(){3*2*;}"
 try_error "main(){23+++23;}"
 try_error "main(){32*++23;}"

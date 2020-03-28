@@ -32,7 +32,7 @@ let seq ls =
       let> n = next in
       Result.Monad.return (p >>> n)) (tell []) ls
 
-let machine_of_op op i =
+let machine_of_binary_op op i =
   let open Operator in
   match op with
   | Plus -> tell [Machine "add rax, rdi"]
@@ -112,7 +112,7 @@ let rec generate_node local = function
     seq [left;
          generate_node local right;
          tell [Machine "pop rdi"; Machine "pop rax";];
-         machine_of_op op i;
+         machine_of_binary_op op i;
          tell (if op = Assign then [] else [Machine "push rax"])]
   | FuncDecl (_, name, local, args, body) ->
     seq [label name;
@@ -200,6 +200,16 @@ let rec generate_node local = function
     seq [arguments args;
          tell [Machine (Printf.sprintf "call %s" name);
                Machine "push rax";]]
+  | Op(i, op, node) ->
+    begin match op with
+      | Ref -> seq [generate_lval local node;]
+      | Deref ->
+        seq [generate_node local node;
+             tell [Machine "pop rax";
+                   Machine "mov rax, [rax]";
+                   Machine "push rax"]]
+      | _ -> error @@ `GeneratorError (Some i, "invalid operator")
+    end
 
 and generate_nodes local nodes =
   List.fold_left (fun pred node ->
